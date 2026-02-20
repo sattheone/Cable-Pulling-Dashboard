@@ -599,6 +599,19 @@
     const resultEl = document.getElementById('sheetsTestResult');
     resultEl.textContent = ok ? '✅ All data pulled from Sheets!' : '❌ Pull failed';
     resultEl.className = 'text-xs mt-2 ' + (ok ? 'text-green-600' : 'text-red-500');
+
+    // Refresh the Settings form with pulled data so "Save & Apply" won't overwrite
+    if(ok){
+      _settingsTypes = JSON.parse(JSON.stringify(project.types));
+      document.getElementById('sProjectName').value = project.name || '';
+      document.getElementById('sProjectStart').value = project.startDate || '';
+      document.getElementById('sTargetDate').value = project.targetDate || '';
+      document.getElementById('sAsOf').value = project.asOf || '';
+      renderSettingsTypes();
+      renderSettingsBoq();
+      renderSettingsSrn();
+      populateSrnTypeSelect();
+    }
   }
 
   /* ─── ISO-week helper ───────────────────────────────────────────────── */

@@ -387,58 +387,17 @@
   const LS_MANUAL   = 'ei_dash_manual_v2';
   const LS_HISTORY  = 'ei_dashboard_weekHistory_v1';
 
-  /* ─── Default seed data (used only on first launch) ─────────────── */
+  /* ─── Default seed data (empty — all data comes from Google Sheets) ── */
   const SEED_PROJECT = {
-    name:      'E&I Cable Pulling',
-    startDate: '2024-09-01',
-    targetDate:'2026-09-30',
-    asOf:      '2026-01-30',
-    types: [
-      { name: 'HV',  color: '#3b82f6' },
-      { name: 'LV',  color: '#8b5cf6' },
-      { name: 'Ins', color: '#ec4899' },
-      { name: 'Tel', color: '#f59e0b' },
-      { name: 'HT',  color: '#10b981' }
-    ]
+    name:      '',
+    startDate: '',
+    targetDate:'',
+    asOf:      '',
+    types: []
   };
-  const SEED_BOQ = { HV: 35275, LV: 367298, Ins: 462247, Tel: 196468, HT: 276075 };
-  const SEED_SRN = [
-    { type:'HV', date:'05/11/2024', length:9754,  ref:'SRN-00286' },
-    { type:'HV', date:'19/12/2024', length:3023,  ref:'SRN-00356' },
-    { type:'HV', date:'19/09/2025', length:16327, ref:'SRN-00286' },
-    { type:'HV', date:'09/01/2026', length:4321,  ref:'SRN-01170' },
-    { type:'HV', date:'19/04/2026', length:1850,  ref:'No SRN'    },
-    { type:'LV', date:'19/11/2025', length:1752,  ref:'SRN-01033' },
-    { type:'LV', date:'25/11/2025', length:28713, ref:'SRN-01090' },
-    { type:'LV', date:'22/03/2025', length:75090, ref:'SRN-00553' },
-    { type:'LV', date:'12/01/2026', length:95640, ref:'SRN-01152' },
-    { type:'LV', date:'22/01/2026', length:36163, ref:'SRN-01180' },
-    { type:'LV', date:'26/12/2025', length:112635,ref:'SRN-01252' },
-    { type:'LV', date:'19/04/2026', length:17305, ref:'No SRN'    },
-    { type:'Ins',date:'07/07/2025', length:44328, ref:'SRN-00840' },
-    { type:'Ins',date:'31/01/2026', length:217648,ref:'SRN-01239' },
-    { type:'Ins',date:'11/03/2026', length:196475,ref:'SRN-01426' },
-    { type:'Ins',date:'04/03/2026', length:3796,  ref:'SRN-01435' },
-    { type:'Tel',date:'07/11/2024', length:102302,ref:'SRN-00274' },
-    { type:'Tel',date:'04/07/2025', length:84266, ref:'SRN-00757' },
-    { type:'Tel',date:'15/12/2025', length:3500,  ref:'SRN-01303' },
-    { type:'Tel',date:'19/04/2026', length:4900,  ref:'No SRN'    },
-    { type:'Tel',date:'27/06/2026', length:1500,  ref:'No SRN'    },
-    { type:'HT', date:'22/09/2025', length:580,   ref:'SRN-00334' },
-    { type:'HT', date:'22/09/2025', length:9103,  ref:'SRN-00855' },
-    { type:'HT', date:'26/09/2025', length:30665, ref:'SRN-00933' },
-    { type:'HT', date:'22/10/2025', length:21771, ref:'SRN-00939' },
-    { type:'HT', date:'25/02/2026', length:70117, ref:'SRN-01295' },
-    { type:'HT', date:'19/04/2026', length:60420, ref:'SRN-01446' },
-    { type:'HT', date:'19/04/2026', length:83419, ref:'No SRN'    }
-  ];
-  const SEED_MANUAL = {
-    HV:  { delivered:null, pulled:12750, lastWeek:4346, thisWeek:0 },
-    LV:  { delivered:null, pulled:14098, lastWeek:0,    thisWeek:8480 },
-    Ins: { delivered:null, pulled:0,     lastWeek:0,    thisWeek:0 },
-    Tel: { delivered:null, pulled:0,     lastWeek:0,    thisWeek:0 },
-    HT:  { delivered:null, pulled:3300,  lastWeek:0,    thisWeek:0 }
-  };
+  const SEED_BOQ = {};
+  const SEED_SRN = [];
+  const SEED_MANUAL = {};
 
   /* ─── Live state (loaded from localStorage or seed) ─────────────── */
   let project = {};      // { name, startDate, targetDate, asOf, types:[{name,color}] }

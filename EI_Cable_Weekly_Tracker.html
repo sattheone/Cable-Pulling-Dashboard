@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>E&amp;I Cable Pulling – Weekly Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+
+    /* ── Spin-button hide ── */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; }
+
+    /* ── Input cards ── */
+    .input-card {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      padding: 20px 20px 22px;
+      border-top: 4px solid var(--card-color);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1 1 0;
+      min-width: 180px;
+    }
+    .input-card h3 {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #1e293b;
+      margin-bottom: 2px;
+    }
+    .field-group { display: flex; flex-direction: column; gap: 4px; }
+    .field-label { font-size: 0.78rem; color: #64748b; }
+    .field-input {
+      width: 100%;
+      padding: 8px 11px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 0.92rem;
+      color: #1e293b;
+      background: #f8fafc;
+      outline: none;
+      transition: border-color .15s;
+      box-sizing: border-box;
+    }
+    .field-input:focus { border-color: var(--card-color); background: #fff; }
+    .field-input::placeholder { color: #cbd5e1; }
+    .field-input:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+
+    /* ── Summary cards ── */
+    .sum-card {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+      padding: 22px 24px;
+      border-left: 5px solid var(--card-color);
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .sum-card-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .sum-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+      font-size: 0.9rem;
+    }
+    .sum-label { color: #64748b; }
+    .sum-val   { font-weight: 700; color: #1e293b; }
+    .sum-val.green  { color: #16a34a; }
+    .sum-val.orange { color: #ea580c; }
+    .sum-val.blue   { color: #2563eb; }
+    .sum-divider { border: none; border-top: 1px solid #f1f5f9; margin: 8px 0; }
+    .weeks-box {
+      background: #f1f5f9;
+      border-radius: 8px;
+      padding: 9px 12px;
+      margin: 8px 0;
+    }
+    .weeks-box-label { font-size: 0.75rem; color: #64748b; margin-bottom: 4px; }
+    .weeks-box-row { display: flex; justify-content: space-between; font-size: 0.88rem; }
+    .progress-section { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+    .prog-label-row { display: flex; justify-content: space-between; font-size: 0.78rem; color: #64748b; margin-bottom: 3px; }
+    .prog-bar-bg { background: #e2e8f0; border-radius: 9999px; height: 7px; overflow: hidden; }
+    .prog-bar-fill { height: 7px; border-radius: 9999px; transition: width .4s; }
+
+    /* ── Pulse new-week banner ── */
+    @keyframes pulse-bg { 0%,100%{background:#bbf7d0} 50%{background:#6ee7b7} }
+    .saved-banner { animation: pulse-bg 1s ease-in-out 2; }
+
+    canvas { max-width: 100%; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+
+<!-- ════════════════════════════════ PAGE ════════════════════════════════ -->
+<div class="max-w-7xl mx-auto px-4 py-8">
+
+  <!-- ── Title bar ── -->
+  <div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+    <div>
+      <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight">E&amp;I Cable Pulling</h1>
+      <p class="text-sm text-slate-500 mt-1">Weekly progress tracker &nbsp;|&nbsp; Enter green fields &nbsp;|&nbsp; Summary updates automatically</p>
+    </div>
+    <div class="flex flex-wrap items-end gap-3">
+      <div>
+        <label class="block text-xs text-slate-500 mb-1">Week ending</label>
+        <input id="weekDate" type="date"
+          class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 bg-white"/>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-500 mb-1">Target completion</label>
+        <input id="targetDate" type="date"
+          class="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 bg-white"/>
+      </div>
+      <button id="btnSave"
+        class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold shadow transition">
+        💾 Save Week
+      </button>
+      <button id="btnReset"
+        class="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-semibold transition">
+        ↺ Reset
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Save confirmation ── -->
+  <div id="saveBanner" class="hidden mb-4 px-4 py-2 rounded-lg text-green-800 font-semibold text-sm saved-banner"></div>
+
+  <!-- ── Weeks remaining chip ── -->
+  <div class="flex gap-4 mb-6">
+    <div class="bg-white rounded-lg shadow px-4 py-2 text-sm">
+      <span class="text-slate-500">Weeks remaining:</span>
+      <span id="weeksRemaining" class="font-bold text-indigo-700 ml-1">—</span>
+    </div>
+  </div>
+
+  <!-- ════ INPUT CARDS ════ -->
+  <div class="mb-3">
+    <h2 class="text-base font-bold text-slate-600 uppercase tracking-wide mb-3">✍️ Weekly Data Entry</h2>
+    <div id="inputCards" class="flex gap-4 flex-wrap"></div>
+  </div>
+
+  <!-- ════ SUMMARY CARDS ════ -->
+  <div class="mb-8 mt-8">
+    <h2 class="text-base font-bold text-slate-600 uppercase tracking-wide mb-3">📊 Progress Summary</h2>
+    <div id="summaryCards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+  </div>
+
+  <!-- ════ CHARTS ════ -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <div class="bg-white rounded-xl shadow p-5">
+      <h2 class="font-semibold text-slate-700 mb-3">Delivery Status vs Total Qty</h2>
+      <div class="h-64"><canvas id="chartDelivery"></canvas></div>
+    </div>
+    <div class="bg-white rounded-xl shadow p-5">
+      <h2 class="font-semibold text-slate-700 mb-3">Pulling Progress vs Total Qty</h2>
+      <div class="h-64"><canvas id="chartPulling"></canvas></div>
+    </div>
+    <div class="bg-white rounded-xl shadow p-5">
+      <h2 class="font-semibold text-slate-700 mb-3">Weekly Pulling — Last Week vs This Week</h2>
+      <div class="h-64"><canvas id="chartWeekly"></canvas></div>
+    </div>
+    <div class="bg-white rounded-xl shadow p-5">
+      <h2 class="font-semibold text-slate-700 mb-3">Delivered % &amp; Pulled % by Cable Type</h2>
+      <div class="h-64"><canvas id="chartPct"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ════ WEEKLY HISTORY ════ -->
+  <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-semibold text-slate-700">Weekly Pulling History</h2>
+      <button id="btnClearHistory"
+        class="text-xs text-red-500 hover:underline">Clear history</button>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="text-sm w-full" id="historyTable">
+        <thead class="bg-slate-50">
+          <tr>
+            <th class="px-3 py-2 text-left">Week Ending</th>
+            <th class="px-3 py-2 text-right">HV This Week</th>
+            <th class="px-3 py-2 text-right">LV This Week</th>
+            <th class="px-3 py-2 text-right">Ins This Week</th>
+            <th class="px-3 py-2 text-right">Tel This Week</th>
+            <th class="px-3 py-2 text-right">HT This Week</th>
+            <th class="px-3 py-2 text-right">Total This Week</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr><td colspan="7" class="px-3 py-4 text-slate-400 text-center">No history yet. Save a week to begin.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="text-center text-xs text-slate-400">Data stored in browser localStorage. No server required.</p>
+</div>
+
+<!-- ════════════════════════════════ SCRIPT ════════════════════════════════ -->
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   CONFIG — cable types and initial BOQ / delivered seed values
+   ───────────────────────────────────────────────────────────────────────── */
+const TYPES   = ['HV', 'LV', 'Ins', 'Tel', 'HT'];
+const COLORS  = { HV:'#3b82f6', LV:'#8b5cf6', Ins:'#ec4899', Tel:'#f59e0b', HT:'#10b981' };
+
+/* Initial seed data matching the screenshot.
+   total    = Total Qty (BOQ) – editable in the table but rarely changes
+   delivered= Cumulative delivered to site (updated when deliveries arrive)
+   pulled   = Cumulative pulled/laid (weekly update)
+   lastWeek = km pulled in the previous week
+   thisWeek = km pulled this week
+*/
+const DEFAULTS = {
+  HV:  { total: 801.884, delivered: 694.085, pulled: 38.95,  lastWeek: 14.07, thisWeek: 14.66 },
+  LV:  { total: 648.419, delivered: 276.186, pulled: 0,      lastWeek: 0,     thisWeek: 0     },
+  Ins: { total: 0,       delivered: 0,       pulled: 0,      lastWeek: 0,     thisWeek: 0     },
+  Tel: { total: 342.431, delivered: 253.938, pulled: 2.1,    lastWeek: 0,     thisWeek: 0     },
+  HT:  { total: 286.706, delivered: 68.889,  pulled: 0,      lastWeek: 0,     thisWeek: 0     },
+};
+
+/* LV column inputs are enabled; user can toggle pending status here */
+const LV_PENDING = false;   // set true to lock LV inputs
+
+/* ─────────────────────────────────────────────────────────────────────────
+   STATE
+   ───────────────────────────────────────────────────────────────────────── */
+let state = {};    // keyed by type; same shape as DEFAULTS
+let history = [];  // array of { date, values:{ HV:{...}, ... } }
+
+const LS_STATE   = 'ei_cable_state_v2';
+const LS_HISTORY = 'ei_cable_history_v2';
+const LS_DATES   = 'ei_cable_dates_v2';
+
+function loadState(){
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_STATE));
+    state = s && typeof s === 'object' ? s : JSON.parse(JSON.stringify(DEFAULTS));
+    const h = JSON.parse(localStorage.getItem(LS_HISTORY));
+    history = Array.isArray(h) ? h : [];
+    const d = JSON.parse(localStorage.getItem(LS_DATES));
+    if(d){
+      if(d.week)   document.getElementById('weekDate').value   = d.week;
+      if(d.target) document.getElementById('targetDate').value = d.target;
+    }
+  } catch(e){
+    state = JSON.parse(JSON.stringify(DEFAULTS));
+    history = [];
+  }
+}
+
+function saveState(){
+  localStorage.setItem(LS_STATE,   JSON.stringify(state));
+  localStorage.setItem(LS_HISTORY, JSON.stringify(history));
+  localStorage.setItem(LS_DATES,   JSON.stringify({
+    week:   document.getElementById('weekDate').value,
+    target: document.getElementById('targetDate').value
+  }));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   DERIVED CALCULATIONS
+   ───────────────────────────────────────────────────────────────────────── */
+function clamp(v){ return isFinite(v) ? Math.max(0, v) : 0; }
+function pct(a,b){ return b > 0 ? (a/b)*100 : 0; }
+function fmt(v, dp=3){ return isFinite(v) ? v.toFixed(dp) : '—'; }
+function fmtPct(v){ return isFinite(v) ? v.toFixed(2)+'%' : '—'; }
+
+function derive(t){
+  const s = state[t] || {};
+  const total     = clamp(+s.total     || 0);
+  const delivered = clamp(+s.delivered || 0);
+  const pulled    = clamp(+s.pulled    || 0);
+  const lastWeek  = clamp(+s.lastWeek  || 0);
+  const thisWeek  = clamp(+s.thisWeek  || 0);
+  const pending   = clamp(total - delivered);
+  const remaining = clamp(total - pulled);
+  const delivPct  = pct(delivered, total);
+  const pullPct   = pct(pulled, total);
+  return { total, delivered, pending, pulled, remaining, lastWeek, thisWeek, delivPct, pullPct };
+}
+
+function totals(){
+  let total=0, delivered=0, pending=0, pulled=0, remaining=0, lastWeek=0, thisWeek=0;
+  TYPES.forEach(t => {
+    const d = derive(t);
+    total     += d.total;
+    delivered += d.delivered;
+    pending   += d.pending;
+    pulled    += d.pulled;
+    remaining += d.remaining;
+    lastWeek  += d.lastWeek;
+    thisWeek  += d.thisWeek;
+  });
+  return { total, delivered, pending, pulled, remaining, lastWeek, thisWeek,
+           delivPct: pct(delivered,total), pullPct: pct(pulled,total) };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   BUILD INPUT CARDS  (one per cable type)
+   ───────────────────────────────────────────────────────────────────────── */
+function buildInputCards(){
+  const wrap = document.getElementById('inputCards');
+  wrap.innerHTML = '';
+
+  TYPES.forEach(t => {
+    const d   = derive(t);
+    const col = COLORS[t];
+    const card = document.createElement('div');
+    card.className = 'input-card';
+    card.style.setProperty('--card-color', col);
+
+    card.innerHTML = `
+      <h3>${t}</h3>
+      <div class="field-group">
+        <span class="field-label">Total Qty</span>
+        <input class="field-input" type="number" step="0.001" data-type="${t}" data-field="total"
+          value="${(d.total||0).toFixed(3)}" />
+      </div>
+      <div class="field-group">
+        <span class="field-label">Delivered</span>
+        <input class="field-input" type="number" step="0.001" data-type="${t}" data-field="delivered"
+          value="${(d.delivered||0).toFixed(3)}" placeholder="0.000" />
+      </div>
+      <div class="field-group">
+        <span class="field-label">Pulled</span>
+        <input class="field-input" type="number" step="0.001" data-type="${t}" data-field="pulled"
+          value="${(d.pulled||0).toFixed(3)}" placeholder="0.000" />
+      </div>
+      <div class="field-group">
+        <span class="field-label">Last Week</span>
+        <input class="field-input" type="number" step="0.001" data-type="${t}" data-field="lastWeek"
+          value="${(d.lastWeek||0).toFixed(3)}" placeholder="0.000" />
+      </div>
+      <div class="field-group">
+        <span class="field-label">This Week</span>
+        <input class="field-input" type="number" step="0.001" data-type="${t}" data-field="thisWeek"
+          value="${(d.thisWeek||0).toFixed(3)}" placeholder="0.000" />
+      </div>
+    `;
+
+    card.querySelectorAll('.field-input').forEach(inp => {
+      inp.addEventListener('change', e => {
+        const v = parseFloat(e.target.value);
+        if(!state[inp.dataset.type]) state[inp.dataset.type] = {};
+        state[inp.dataset.type][inp.dataset.field] = isNaN(v) ? 0 : v;
+        saveState();
+        buildSummaryCards();
+        updateCharts();
+        updateWeeksChip();
+      });
+    });
+
+    wrap.appendChild(card);
+  });
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   BUILD SUMMARY CARDS  (TOTAL + one per cable type)
+   ───────────────────────────────────────────────────────────────────────── */
+function buildSummaryCards(){
+  const wrap = document.getElementById('summaryCards');
+  wrap.innerHTML = '';
+
+  /* TOTAL card first */
+  const tot = totals();
+  wrap.appendChild(makeSummaryCard('TOTAL', '#f59e0b', tot, true));
+
+  /* Per-type cards */
+  TYPES.forEach(t => {
+    const d = derive(t);
+    wrap.appendChild(makeSummaryCard(t, COLORS[t], d, false));
+  });
+}
+
+function makeSummaryCard(label, color, d, isTotal){
+  const notPulled = Math.max(0, d.delivered - d.pulled);
+
+  const card = document.createElement('div');
+  card.className = 'sum-card';
+  card.style.setProperty('--card-color', color);
+
+  card.innerHTML = `
+    <div class="sum-card-title">
+      <span>${label}</span>
+      <span style="font-size:1.4rem">📦</span>
+    </div>
+
+    <div class="sum-row">
+      <span class="sum-label">BOQ Total:</span>
+      <span class="sum-val">${fmt(d.total,2)} km</span>
+    </div>
+    <div class="sum-row">
+      <span class="sum-label">Delivered:</span>
+      <span class="sum-val green">${fmt(d.delivered,2)} km</span>
+    </div>
+    <div class="sum-row">
+      <span class="sum-label">Pending${isTotal?' (to receive)':''}:</span>
+      <span class="sum-val orange">${fmt(d.pending,2)} km</span>
+    </div>
+
+    <hr class="sum-divider">
+
+    <div class="sum-row">
+      <span class="sum-label">Pulled:</span>
+      <span class="sum-val blue">${fmt(d.pulled,2)} km</span>
+    </div>
+    ${isTotal ? `<div class="sum-row">
+      <span class="sum-label">Delivered – not pulled:</span>
+      <span class="sum-val">${fmt(notPulled,2)} km</span>
+    </div>` : ''}
+    <div class="sum-row">
+      <span class="sum-label">Remaining vs BOQ:</span>
+      <span class="sum-val">${fmt(d.remaining,2)} km</span>
+    </div>
+
+    <div class="weeks-box">
+      <div class="weeks-box-label">Last 2 Weeks Pulling:</div>
+      <div class="weeks-box-row">
+        <span>Last: <strong>${fmt(d.lastWeek,2)} km</strong></span>
+        <span>This: <strong>${fmt(d.thisWeek,2)} km</strong></span>
+      </div>
+    </div>
+
+    <div class="progress-section">
+      <div>
+        <div class="prog-label-row">
+          <span>Delivered / BOQ</span>
+          <span>${fmtPct(d.delivPct)}</span>
+        </div>
+        <div class="prog-bar-bg">
+          <div class="prog-bar-fill" style="width:${Math.min(100,d.delivPct).toFixed(1)}%;background:${color}"></div>
+        </div>
+      </div>
+      <div>
+        <div class="prog-label-row">
+          <span>Pulled / BOQ</span>
+          <span>${fmtPct(d.pullPct)}</span>
+        </div>
+        <div class="prog-bar-bg">
+          <div class="prog-bar-fill" style="width:${Math.min(100,d.pullPct).toFixed(1)}%;background:#3b82f6"></div>
+        </div>
+      </div>
+    </div>
+  `;
+  return card;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   WEEKS REMAINING CHIP
+   ───────────────────────────────────────────────────────────────────────── */
+function updateWeeksChip(){
+  const wv = document.getElementById('weekDate').value;
+  const tv = document.getElementById('targetDate').value;
+  const el = document.getElementById('weeksRemaining');
+  if(!wv || !tv){ el.textContent = '—'; return; }
+  const diff = (new Date(tv) - new Date(wv)) / (7*24*60*60*1000);
+  el.textContent = diff > 0 ? Math.ceil(diff) + ' weeks' : '0 (overdue)';
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   CHARTS
+   ───────────────────────────────────────────────────────────────────────── */
+let charts = {};
+
+function makeChart(id, cfg){
+  if(charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), cfg);
+}
+
+function updateCharts(){
+  const labels = TYPES;
+  const D = {};
+  TYPES.forEach(t => { D[t] = derive(t); });
+
+  /* 1. Delivery stacked bar */
+  makeChart('chartDelivery', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'Delivered', data: TYPES.map(t=>D[t].delivered), backgroundColor:'#22c55e', stack:'s' },
+        { label:'Pending',   data: TYPES.map(t=>D[t].pending),   backgroundColor:'#fbbf24', stack:'s' }
+      ]
+    },
+    options: chartOpts('(units)')
+  });
+
+  /* 2. Pulling stacked bar */
+  makeChart('chartPulling', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'Pulled',    data: TYPES.map(t=>D[t].pulled),    backgroundColor:'#3b82f6', stack:'s' },
+        { label:'Remaining', data: TYPES.map(t=>D[t].remaining), backgroundColor:'#e2e8f0', stack:'s' }
+      ]
+    },
+    options: chartOpts('(units)')
+  });
+
+  /* 3. Weekly pulling grouped */
+  makeChart('chartWeekly', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'Last Week', data: TYPES.map(t=>D[t].lastWeek), backgroundColor:'#a78bfa' },
+        { label:'This Week', data: TYPES.map(t=>D[t].thisWeek), backgroundColor:'#10b981' }
+      ]
+    },
+    options: chartOpts('(units)')
+  });
+
+  /* 4. Delivered% & Pulled% */
+  makeChart('chartPct', {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'Delivered %', data: TYPES.map(t=>+D[t].delivPct.toFixed(2)), backgroundColor:'#22c55e' },
+        { label:'Pulled %',    data: TYPES.map(t=>+D[t].pullPct.toFixed(2)),  backgroundColor:'#3b82f6' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins:{ legend:{ position:'top' },
+        tooltip:{ callbacks:{ label: c=>`${c.dataset.label}: ${c.parsed.y.toFixed(2)}%` } } },
+      scales:{ y:{ max:100, title:{ display:true, text:'%' } } }
+    }
+  });
+}
+
+function chartOpts(yLabel){
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins:{ legend:{ position:'top' },
+      tooltip:{ callbacks:{ label: c=>`${c.dataset.label}: ${c.parsed.y.toFixed(3)}` } } },
+    scales:{
+      x:{ stacked: false },
+      y:{ stacked: false, title:{ display:true, text: yLabel } }
+    }
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   HISTORY
+   ───────────────────────────────────────────────────────────────────────── */
+function saveWeek(){
+  const dt = document.getElementById('weekDate').value;
+  if(!dt){ alert('Please select a week-ending date first.'); return; }
+
+  /* build snapshot */
+  const snap = { date: dt, values: {} };
+  TYPES.forEach(t => { snap.values[t] = { ...derive(t) }; });
+
+  /* replace existing entry for same date or push */
+  const idx = history.findIndex(h => h.date === dt);
+  if(idx >= 0) history[idx] = snap; else history.push(snap);
+  history.sort((a,b) => a.date < b.date ? -1 : 1);
+
+  saveState();
+  renderHistory();
+
+  /* banner */
+  const banner = document.getElementById('saveBanner');
+  banner.textContent = `✅  Week ending ${dt} saved successfully.`;
+  banner.classList.remove('hidden');
+  banner.classList.add('saved-banner');
+  setTimeout(()=>{ banner.classList.add('hidden'); banner.classList.remove('saved-banner'); }, 3500);
+}
+
+function renderHistory(){
+  const tbody = document.getElementById('historyBody');
+  if(!history.length){
+    tbody.innerHTML = `<tr><td colspan="7" class="px-3 py-4 text-slate-400 text-center">No history yet.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = '';
+  [...history].reverse().forEach(h => {
+    const tot = TYPES.reduce((s,t)=> s + (h.values[t]?.thisWeek||0), 0);
+    const tr  = document.createElement('tr');
+    tr.className = 'border-t hover:bg-slate-50';
+    tr.innerHTML = `
+      <td class="px-3 py-2 font-medium">${h.date}</td>
+      ${TYPES.map(t=>`<td class="px-3 py-2 text-right">${(h.values[t]?.thisWeek||0).toFixed(3)}</td>`).join('')}
+      <td class="px-3 py-2 text-right font-bold">${tot.toFixed(3)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   RESET
+   ───────────────────────────────────────────────────────────────────────── */
+function resetAll(){
+  if(!confirm('Reset all data to defaults? This cannot be undone.')) return;
+  localStorage.removeItem(LS_STATE);
+  localStorage.removeItem(LS_HISTORY);
+  localStorage.removeItem(LS_DATES);
+  state   = JSON.parse(JSON.stringify(DEFAULTS));
+  history = [];
+  document.getElementById('weekDate').value   = '';
+  document.getElementById('targetDate').value = '';
+  buildInputCards();
+  buildSummaryCards();
+  updateCharts();
+  updateWeeksChip();
+  renderHistory();
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   INIT
+   ───────────────────────────────────────────────────────────────────────── */
+(function init(){
+  loadState();
+
+  /* default dates if not saved */
+  const today = new Date();
+  if(!document.getElementById('weekDate').value){
+    /* default to previous Friday */
+    const d = new Date(today);
+    d.setDate(d.getDate() - ((d.getDay()+2)%7));
+    document.getElementById('weekDate').value = d.toISOString().slice(0,10);
+  }
+  if(!document.getElementById('targetDate').value){
+    document.getElementById('targetDate').value = '2026-09-30';
+  }
+
+  /* Merge state with defaults for any missing type/key */
+  TYPES.forEach(t => {
+    if(!state[t]) state[t] = { ...DEFAULTS[t] };
+    Object.keys(DEFAULTS[t]).forEach(k => {
+      if(state[t][k] === undefined) state[t][k] = DEFAULTS[t][k];
+    });
+  });
+
+  buildInputCards();
+  buildSummaryCards();
+  updateCharts();
+  updateWeeksChip();
+  renderHistory();
+
+  /* event listeners */
+  document.getElementById('btnSave').addEventListener('click', saveWeek);
+  document.getElementById('btnReset').addEventListener('click', resetAll);
+  document.getElementById('btnClearHistory').addEventListener('click', () => {
+    if(!confirm('Clear all saved history?')) return;
+    history = []; saveState(); renderHistory();
+  });
+  document.getElementById('weekDate').addEventListener('change', updateWeeksChip);
+  document.getElementById('targetDate').addEventListener('change', updateWeeksChip);
+})();
+</script>
+</body>
+</html>

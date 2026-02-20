@@ -1,0 +1,1742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>E&I Cable Pulling Dashboard (Single File)</title>
+
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; }
+    canvas { max-width: 100%; }
+    .tab-btn { transition: all .18s; cursor: pointer; }
+    .tab-btn.active { background:#4f46e5; color:#fff; border-color:#4f46e5; }
+    .tab-pane { display:none; }
+    .tab-pane.active { display:block; }
+    /* Settings modal */
+    .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:900; backdrop-filter:blur(2px); }
+    .modal-overlay.open { display:flex; align-items:center; justify-content:center; }
+    .modal-box { background:#fff; border-radius:1rem; width:95%; max-width:840px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 25px 50px -12px rgba(0,0,0,.25); }
+    .modal-header { padding:1.25rem 1.5rem; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; }
+    .modal-body { padding:1.5rem; overflow-y:auto; flex:1; }
+    .stab-btn { padding:.5rem 1rem; font-size:.875rem; font-weight:500; border-radius:.375rem; border:1px solid #d1d5db; cursor:pointer; transition:all .15s; background:#fff; color:#374151; }
+    .stab-btn.active { background:#4f46e5; color:#fff; border-color:#4f46e5; }
+    .stab-pane { display:none; }
+    .stab-pane.active { display:block; }
+    .s-input { width:100%; padding:.5rem .75rem; border:1px solid #d1d5db; border-radius:.375rem; font-size:.875rem; }
+    .s-input:focus { outline:none; box-shadow:0 0 0 2px rgba(79,70,229,.4); border-color:#6366f1; }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div class="min-h-screen p-6">
+    <div class="max-w-7xl mx-auto">
+      <div class="mb-6 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 class="text-3xl font-bold text-gray-900 mb-1" id="dashTitle">E&amp;I Cable Pulling Dashboard</h1>
+          <p class="text-gray-600">BOQ fixed totals • Delivered by SRN date (or manual override) • Pulled = Laid at Site</p>
+        </div>
+        <div class="flex items-center gap-3 flex-wrap">
+          <span id="syncStatus" class="text-xs px-3 py-1.5 rounded-full font-medium bg-gray-100 text-gray-500">⏳ Loading…</span>
+          <button onclick="syncFromSheets()" id="btnSyncPull" class="px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg shadow transition hidden" title="Pull latest data from Google Sheets">
+            🔄 Sync from Sheets
+          </button>
+          <button onclick="openSettings()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg shadow transition flex items-center gap-2">
+            ⚙️ Settings
+          </button>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="bg-white rounded-lg shadow p-4 mb-6 border-l-4 border-indigo-600">
+        <div class="flex flex-wrap gap-4 items-end">
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">As of (delivery cut-off)</label>
+            <input id="asOf" type="date" class="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Target completion date</label>
+            <input id="targetDate" type="date" class="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Project start date</label>
+            <input id="projectStart" type="date" class="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div class="text-sm text-gray-700">
+            <div><span class="font-semibold">Remaining weeks:</span> <span id="remainingWeeks">—</span></div>
+            <div class="text-xs text-gray-500">Based on As-of to Target</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Manual Data Entry -->
+      <div class="bg-white rounded-lg shadow-lg p-6 mb-8 border-t-4 border-blue-600">
+        <div class="flex items-center mb-2">
+          <div class="text-blue-600 mr-2">✍️</div>
+          <h2 class="text-xl font-semibold text-gray-900">Manual Data Entry</h2>
+        </div>
+        <p class="text-sm text-gray-600 mb-4">
+          Enter quantities in <strong>kilometers</strong>. Leave Delivered blank to use calculated SRN-to-date delivered.
+        </p>
+
+        <div id="manualGrid" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4"></div>
+        <div class="mt-4 flex gap-3 items-center flex-wrap">
+          <button onclick="saveWeekSnapshot()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-md shadow transition">
+            💾 Save Week Snapshot
+          </button>
+          <button onclick="resetManual()" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-semibold rounded-md shadow transition">
+            🔄 Reset
+          </button>
+          <span class="text-xs text-gray-400">Snapshots are stored locally and used for S-Curve &amp; Weekly Trend charts.</span>
+        </div>
+      </div>
+
+      <!-- Cards -->
+      <div id="cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8"></div>
+
+      <!-- Weekly Trend & Projection -->
+      <div class="bg-gradient-to-br from-slate-800 via-slate-900 to-gray-900 rounded-2xl shadow-2xl p-8 mb-8 text-white relative overflow-hidden">
+        <!-- Decorative accent -->
+        <div class="absolute top-0 right-0 w-64 h-64 bg-teal-500 opacity-5 rounded-full -translate-y-1/2 translate-x-1/3"></div>
+        <div class="absolute bottom-0 left-0 w-48 h-48 bg-cyan-400 opacity-5 rounded-full translate-y-1/3 -translate-x-1/4"></div>
+
+        <div class="flex items-center mb-6 relative">
+          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-400 to-cyan-500 flex items-center justify-center text-2xl shadow-lg mr-4">🎯</div>
+          <div>
+            <h2 class="text-2xl font-bold tracking-tight">Weekly Trend &amp; Projection</h2>
+            <p class="text-sm text-slate-300">Target completion: <span id="targetLabel" class="text-teal-300 font-semibold"></span> &nbsp;·&nbsp; <span id="weeksRemainingLabel" class="text-teal-300 font-semibold"></span> weeks remaining</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6 relative">
+          <div class="backdrop-blur-sm bg-white/[0.06] border border-white/10 rounded-xl p-5 hover:bg-white/[0.09] transition">
+            <h3 class="font-semibold mb-3 flex items-center text-teal-300"><span class="mr-2 text-lg">⚡</span> Current Pace <span class="text-xs text-slate-400 ml-2 font-normal">(avg of last 2 weeks)</span></h3>
+            <div id="paceBox" class="space-y-2 text-sm"></div>
+          </div>
+
+          <div class="backdrop-blur-sm bg-white/[0.06] border border-white/10 rounded-xl p-5 hover:bg-white/[0.09] transition">
+            <h3 class="font-semibold mb-3 flex items-center text-cyan-300"><span class="mr-2 text-lg">🎯</span> Required Weekly Pace <span class="text-xs text-slate-400 ml-2 font-normal">(remaining vs BOQ)</span></h3>
+            <div id="targetBox" class="space-y-2 text-sm"></div>
+          </div>
+        </div>
+
+        <div class="backdrop-blur-sm bg-white/[0.06] border border-white/10 rounded-xl p-5 relative">
+          <h3 class="font-semibold mb-4 flex items-center text-amber-300"><span class="mr-2 text-lg">📊</span> Projected Completion <span class="text-xs text-slate-400 ml-2 font-normal">(at current pace)</span></h3>
+          <div id="projectionGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3"></div>
+          <div id="overallProjection" class="mt-4"></div>
+        </div>
+      </div>
+
+      <!-- Charts (tabbed) -->
+      <div class="bg-white rounded-lg shadow p-6 mb-8">
+        <!-- Tab buttons -->
+        <div class="flex flex-wrap gap-2 mb-6 border-b pb-4">
+          <button class="tab-btn active px-4 py-2 rounded-md text-sm font-medium border border-indigo-500" onclick="switchTab('scurve',this)">📈 S-Curve</button>
+          <button class="tab-btn px-4 py-2 rounded-md text-sm font-medium border border-gray-300 text-gray-600" onclick="switchTab('weeklyHistory',this)">📊 Weekly History</button>
+          <button class="tab-btn px-4 py-2 rounded-md text-sm font-medium border border-gray-300 text-gray-600" onclick="switchTab('delivery',this)">🚚 Delivery Status</button>
+          <button class="tab-btn px-4 py-2 rounded-md text-sm font-medium border border-gray-300 text-gray-600" onclick="switchTab('weekly',this)">🔧 Pace vs Target</button>
+        </div>
+
+        <!-- S-Curve pane -->
+        <div id="pane-scurve" class="tab-pane active">
+          <div class="flex flex-wrap justify-between items-start gap-4 mb-4">
+            <div>
+              <h2 class="text-lg font-semibold text-gray-800">📈 Cumulative S-Curve — Planned vs Actual</h2>
+              <p class="text-xs text-gray-400 mt-1">Cumulative pulling vs linear planned baseline and forecast trajectory</p>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <select id="scurveType" onchange="renderSCurve()" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="ALL">All Types</option>
+                <option value="HV">HV</option>
+                <option value="LV">LV</option>
+                <option value="Ins">Ins</option>
+                <option value="Tel">Tel</option>
+                <option value="HT">HT</option>
+              </select>
+              <select id="scurveMetric" onchange="renderSCurve()" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="pulling">Pulling</option>
+                <option value="delivery">Delivery (SRN)</option>
+              </select>
+            </div>
+          </div>
+          <div class="h-[420px]"><canvas id="scurveChart"></canvas></div>
+          <div class="mt-3 flex flex-wrap gap-5 text-xs text-gray-500">
+            <span class="flex items-center gap-1.5"><span class="inline-block w-6 border-t-2 border-dashed border-gray-400"></span>Planned (linear)</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block w-6 border-t-2 border-blue-500"></span>Actual cumulative</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block w-6 border-t-2 border-dashed border-orange-400"></span>Forecast</span>
+            <span class="flex items-center gap-1.5"><span class="inline-block w-6 border-t-2 border-dashed border-green-500"></span>Target (BOQ)</span>
+          </div>
+        </div>
+
+        <!-- Weekly History pane -->
+        <div id="pane-weeklyHistory" class="tab-pane">
+          <div class="flex flex-wrap justify-between items-start gap-4 mb-4">
+            <div>
+              <h2 class="text-lg font-semibold text-gray-800">📊 Weekly Pulling History</h2>
+              <p class="text-xs text-gray-400 mt-1">Week-by-week pulling log. Save a snapshot from the Manual Entry section above.</p>
+            </div>
+            <div class="flex gap-2 flex-wrap items-center">
+              <select id="weeklyTrendType" onchange="renderWeeklyTrend()" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="ALL">All Types (stacked)</option>
+                <option value="HV">HV</option>
+                <option value="LV">LV</option>
+                <option value="Ins">Ins</option>
+                <option value="Tel">Tel</option>
+                <option value="HT">HT</option>
+              </select>
+              <button onclick="clearWeekHistory()" class="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-600 rounded-md text-sm font-medium transition">🗑 Clear History</button>
+            </div>
+          </div>
+          <div class="h-[360px]"><canvas id="weeklyTrendChart"></canvas></div>
+          <!-- History table -->
+          <div class="mt-6 overflow-x-auto">
+            <h3 class="text-sm font-semibold text-gray-700 mb-2">📅 Saved Snapshots</h3>
+            <table class="w-full text-xs border-collapse">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-3 py-2 text-left border border-gray-200">Week</th>
+                  <th class="px-3 py-2 text-left border border-gray-200">Date</th>
+                  <th class="px-3 py-2 text-right border border-gray-200">HV (km)</th>
+                  <th class="px-3 py-2 text-right border border-gray-200">LV (km)</th>
+                  <th class="px-3 py-2 text-right border border-gray-200">Ins (km)</th>
+                  <th class="px-3 py-2 text-right border border-gray-200">Tel (km)</th>
+                  <th class="px-3 py-2 text-right border border-gray-200">HT (km)</th>
+                  <th class="px-3 py-2 text-right border border-gray-200 font-bold">Total (km)</th>
+                  <th class="px-3 py-2 border border-gray-200"></th>
+                </tr>
+              </thead>
+              <tbody id="snapshotTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Delivery Status pane -->
+        <div id="pane-delivery" class="tab-pane">
+          <h2 class="text-lg font-semibold mb-4">Delivery Status vs BOQ (km)</h2>
+          <div class="h-[340px]"><canvas id="deliveryChart"></canvas></div>
+          <p class="text-xs text-gray-500 mt-2">Pending = BOQ − Delivered (clamped at 0)</p>
+        </div>
+
+        <!-- Pace vs Target pane -->
+        <div id="pane-weekly" class="tab-pane">
+          <h2 class="text-lg font-semibold mb-4">Weekly Pulling Pace vs Target</h2>
+          <div class="h-[340px]"><canvas id="weeklyChart"></canvas></div>
+          <p class="text-xs text-gray-500 mt-2">Target Weekly = (BOQ − Pulled) / remaining weeks</p>
+        </div>
+      </div>
+
+      <!-- Summary Table -->
+      <div class="bg-white rounded-lg shadow p-6">
+        <h2 class="text-lg font-semibold mb-4">Summary Table</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-3 text-left text-sm font-semibold text-gray-700">Type</th>
+                <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">BOQ (km)</th>
+                <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">Delivered (km)</th>
+                <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">Pending (km)</th>
+                <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">Pulled (km)</th>
+                <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">Remaining vs BOQ (km)</th>
+                <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">Target/Wk (km)</th>
+                <th class="px-4 py-3 text-right text-sm font-semibold text-gray-700">Avg/Wk (km)</th>
+                <th class="px-4 py-3 text-center text-sm font-semibold text-gray-700">Status</th>
+              </tr>
+            </thead>
+            <tbody id="summaryBody"></tbody>
+          </table>
+        </div>
+        <div class="mt-4 text-xs text-gray-500">
+          Notes: Delivered is calculated from SRN lines whose SRN date ≤ As-of date (unless overridden). BOQ totals are fixed. Pulled = site-installed length.
+        </div>
+      </div>
+
+      <div class="text-center text-xs text-gray-400 mt-6">
+        Single-file HTML (Tailwind + Chart.js). No build tools required.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SETTINGS MODAL ═══ -->
+  <div id="settingsModal" class="modal-overlay" onclick="if(event.target===this)closeSettings()">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 class="text-xl font-bold text-gray-900">⚙️ Project Settings</h2>
+        <button onclick="closeSettings()" class="text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Setting tabs -->
+        <div class="flex gap-2 mb-6 flex-wrap">
+          <button class="stab-btn active" onclick="switchSettingsTab('setup',this)">📋 Project Setup</button>
+          <button class="stab-btn" onclick="switchSettingsTab('boq',this)">📦 BOQ</button>
+          <button class="stab-btn" onclick="switchSettingsTab('srn',this)">🚚 SRN Deliveries</button>
+          <button class="stab-btn" onclick="switchSettingsTab('io',this)">💾 Import / Export</button>
+        </div>
+
+        <!-- Project Setup Tab -->
+        <div id="stab-setup" class="stab-pane active">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Project Name</label>
+              <input id="sProjectName" class="s-input" placeholder="E&I Cable Pulling" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Project Start Date</label>
+              <input id="sProjectStart" type="date" class="s-input" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">Target Completion Date</label>
+              <input id="sTargetDate" type="date" class="s-input" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-1">As-of Date (delivery cut-off)</label>
+              <input id="sAsOf" type="date" class="s-input" />
+            </div>
+          </div>
+
+          <h3 class="font-semibold text-sm text-gray-700 mb-2">Cable Types</h3>
+          <p class="text-xs text-gray-400 mb-3">Add or remove cable categories. Changes apply after clicking Save.</p>
+          <div id="sTypesContainer" class="flex flex-wrap gap-2 mb-3"></div>
+          <div class="flex gap-2">
+            <input id="sNewType" class="s-input" style="max-width:180px" placeholder="New type name…" />
+            <input id="sNewColor" type="color" value="#6366f1" class="h-9 w-12 rounded border border-gray-300 cursor-pointer" />
+            <button onclick="addCableType()" class="px-3 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700 transition">+ Add</button>
+          </div>
+        </div>
+
+        <!-- BOQ Tab -->
+        <div id="stab-boq" class="stab-pane">
+          <p class="text-xs text-gray-400 mb-4">Enter the Bill of Quantities (total meters) for each cable type.</p>
+          <div id="sBoqContainer" class="space-y-3"></div>
+        </div>
+
+        <!-- SRN Deliveries Tab -->
+        <div id="stab-srn" class="stab-pane">
+          <p class="text-xs text-gray-400 mb-3">Log all SRN delivery records. Dates in DD/MM/YYYY or YYYY-MM-DD format.</p>
+          <div class="flex gap-2 mb-4 flex-wrap">
+            <select id="sSrnType" class="s-input" style="max-width:120px"></select>
+            <input id="sSrnDate" type="date" class="s-input" style="max-width:160px" />
+            <input id="sSrnLength" type="number" class="s-input" style="max-width:140px" placeholder="Length (m)" />
+            <input id="sSrnRef" class="s-input" style="max-width:160px" placeholder="SRN Reference" />
+            <button onclick="addSrnRow()" class="px-3 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition whitespace-nowrap">+ Add SRN</button>
+          </div>
+          <div class="overflow-x-auto max-h-[350px] overflow-y-auto">
+            <table class="w-full text-xs border-collapse">
+              <thead class="bg-gray-50 sticky top-0">
+                <tr>
+                  <th class="px-3 py-2 text-left border border-gray-200">Type</th>
+                  <th class="px-3 py-2 text-left border border-gray-200">Date</th>
+                  <th class="px-3 py-2 text-right border border-gray-200">Length (m)</th>
+                  <th class="px-3 py-2 text-left border border-gray-200">Reference</th>
+                  <th class="px-3 py-2 border border-gray-200 w-12"></th>
+                </tr>
+              </thead>
+              <tbody id="sSrnBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Import/Export Tab -->
+        <div id="stab-io" class="stab-pane">
+          <p class="text-xs text-gray-400 mb-4">Export all project data as JSON or import from a file. This includes project setup, BOQ, SRN deliveries, manual entries and snapshots.</p>
+          <div class="flex gap-3 mb-6">
+            <button onclick="exportAllData()" class="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition">📤 Export JSON</button>
+            <label class="px-4 py-2 bg-amber-500 text-white text-sm rounded-md hover:bg-amber-600 transition cursor-pointer">
+              📥 Import JSON
+              <input type="file" accept=".json" onchange="importAllData(event)" class="hidden" />
+            </label>
+          </div>
+          <div id="ioStatus" class="text-sm text-gray-600"></div>
+
+          <!-- Google Sheets Integration -->
+          <div class="mt-6 pt-4 border-t border-gray-200">
+            <h3 class="font-semibold text-sm text-gray-700 mb-2">☁️ Google Sheets Backend</h3>
+            <p class="text-xs text-gray-400 mb-3">Paste your deployed Google Apps Script Web App URL below to enable cloud sync. Leave empty for local-only mode.</p>
+            <div class="flex gap-2">
+              <input id="sScriptUrl" class="s-input flex-1" placeholder="https://script.google.com/macros/s/XXXXXXXXX/exec" />
+              <button onclick="testSheetsConnection()" class="px-3 py-2 bg-teal-600 text-white text-sm rounded-md hover:bg-teal-700 transition whitespace-nowrap">🔗 Test</button>
+            </div>
+            <div id="sheetsTestResult" class="text-xs mt-2 text-gray-500"></div>
+            <div class="flex gap-2 mt-3">
+              <button onclick="pushAllToSheets()" class="px-3 py-2 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition">⬆️ Push All to Sheets</button>
+              <button onclick="pullAllFromSheets()" class="px-3 py-2 bg-green-600 text-white text-xs rounded-md hover:bg-green-700 transition">⬇️ Pull All from Sheets</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Save / Cancel buttons -->
+        <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
+          <button onclick="closeSettings()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold rounded-md transition">Cancel</button>
+          <button onclick="saveSettings()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-md transition">💾 Save &amp; Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  /* ─── constants ─────────────────────────────────────────────────────── */
+  const LS_PROJECT  = 'ei_dash_project_v2';
+  const LS_BOQ      = 'ei_dash_boq_v2';
+  const LS_SRN      = 'ei_dash_srn_v2';
+  const LS_MANUAL   = 'ei_dash_manual_v2';
+  const LS_HISTORY  = 'ei_dashboard_weekHistory_v1';
+
+  /* ─── Default seed data (used only on first launch) ─────────────── */
+  const SEED_PROJECT = {
+    name:      'E&I Cable Pulling',
+    startDate: '2024-09-01',
+    targetDate:'2026-09-30',
+    asOf:      '2026-01-30',
+    types: [
+      { name: 'HV',  color: '#3b82f6' },
+      { name: 'LV',  color: '#8b5cf6' },
+      { name: 'Ins', color: '#ec4899' },
+      { name: 'Tel', color: '#f59e0b' },
+      { name: 'HT',  color: '#10b981' }
+    ]
+  };
+  const SEED_BOQ = { HV: 35275, LV: 367298, Ins: 462247, Tel: 196468, HT: 276075 };
+  const SEED_SRN = [
+    { type:'HV', date:'05/11/2024', length:9754,  ref:'SRN-00286' },
+    { type:'HV', date:'19/12/2024', length:3023,  ref:'SRN-00356' },
+    { type:'HV', date:'19/09/2025', length:16327, ref:'SRN-00286' },
+    { type:'HV', date:'09/01/2026', length:4321,  ref:'SRN-01170' },
+    { type:'HV', date:'19/04/2026', length:1850,  ref:'No SRN'    },
+    { type:'LV', date:'19/11/2025', length:1752,  ref:'SRN-01033' },
+    { type:'LV', date:'25/11/2025', length:28713, ref:'SRN-01090' },
+    { type:'LV', date:'22/03/2025', length:75090, ref:'SRN-00553' },
+    { type:'LV', date:'12/01/2026', length:95640, ref:'SRN-01152' },
+    { type:'LV', date:'22/01/2026', length:36163, ref:'SRN-01180' },
+    { type:'LV', date:'26/12/2025', length:112635,ref:'SRN-01252' },
+    { type:'LV', date:'19/04/2026', length:17305, ref:'No SRN'    },
+    { type:'Ins',date:'07/07/2025', length:44328, ref:'SRN-00840' },
+    { type:'Ins',date:'31/01/2026', length:217648,ref:'SRN-01239' },
+    { type:'Ins',date:'11/03/2026', length:196475,ref:'SRN-01426' },
+    { type:'Ins',date:'04/03/2026', length:3796,  ref:'SRN-01435' },
+    { type:'Tel',date:'07/11/2024', length:102302,ref:'SRN-00274' },
+    { type:'Tel',date:'04/07/2025', length:84266, ref:'SRN-00757' },
+    { type:'Tel',date:'15/12/2025', length:3500,  ref:'SRN-01303' },
+    { type:'Tel',date:'19/04/2026', length:4900,  ref:'No SRN'    },
+    { type:'Tel',date:'27/06/2026', length:1500,  ref:'No SRN'    },
+    { type:'HT', date:'22/09/2025', length:580,   ref:'SRN-00334' },
+    { type:'HT', date:'22/09/2025', length:9103,  ref:'SRN-00855' },
+    { type:'HT', date:'26/09/2025', length:30665, ref:'SRN-00933' },
+    { type:'HT', date:'22/10/2025', length:21771, ref:'SRN-00939' },
+    { type:'HT', date:'25/02/2026', length:70117, ref:'SRN-01295' },
+    { type:'HT', date:'19/04/2026', length:60420, ref:'SRN-01446' },
+    { type:'HT', date:'19/04/2026', length:83419, ref:'No SRN'    }
+  ];
+  const SEED_MANUAL = {
+    HV:  { delivered:null, pulled:12750, lastWeek:4346, thisWeek:0 },
+    LV:  { delivered:null, pulled:14098, lastWeek:0,    thisWeek:8480 },
+    Ins: { delivered:null, pulled:0,     lastWeek:0,    thisWeek:0 },
+    Tel: { delivered:null, pulled:0,     lastWeek:0,    thisWeek:0 },
+    HT:  { delivered:null, pulled:3300,  lastWeek:0,    thisWeek:0 }
+  };
+
+  /* ─── Live state (loaded from localStorage or seed) ─────────────── */
+  let project = {};      // { name, startDate, targetDate, asOf, types:[{name,color}] }
+  let TYPES   = [];      // derived: ['HV','LV',...]
+  let BOQ     = {};      // { HV:{total,color}, ... }
+  let SRN     = [];      // [{ type, date, length, ref }]
+  let manual  = {};      // { HV:{delivered,pulled,lastWeek,thisWeek}, ... }
+  let weekHistory = [];  // [{id,weekLabel,date,pulled:{},total}]
+
+  /* ─── Load / persist helpers ─────────────────────────────────────── */
+  function lsGet(key, fallback){ try { const v = JSON.parse(localStorage.getItem(key)); return v || fallback; } catch(e){ return fallback; } }
+  function lsSet(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
+
+  function loadAll(){
+    project = lsGet(LS_PROJECT, JSON.parse(JSON.stringify(SEED_PROJECT)));
+    const boqRaw = lsGet(LS_BOQ, JSON.parse(JSON.stringify(SEED_BOQ)));
+    SRN     = lsGet(LS_SRN, JSON.parse(JSON.stringify(SEED_SRN)));
+    manual  = lsGet(LS_MANUAL, JSON.parse(JSON.stringify(SEED_MANUAL)));
+    weekHistory = lsGet(LS_HISTORY, []);
+
+    // Derive TYPES + BOQ from project.types + boqRaw
+    TYPES = project.types.map(t => t.name);
+    BOQ = {};
+    project.types.forEach(t => {
+      BOQ[t.name] = { total: boqRaw[t.name] || 0, color: t.color };
+    });
+
+    // Ensure manual has entries for every type
+    TYPES.forEach(t => {
+      if(!manual[t]) manual[t] = { delivered:null, pulled:0, lastWeek:0, thisWeek:0 };
+    });
+  }
+
+  function persistProject(){ lsSet(LS_PROJECT, project); }
+  function persistBoq(){
+    const obj = {};
+    TYPES.forEach(t => obj[t] = BOQ[t].total);
+    lsSet(LS_BOQ, obj);
+  }
+  function persistSrn(){ lsSet(LS_SRN, SRN); }
+  function persistManual(){ lsSet(LS_MANUAL, manual); }
+  function persistHistory(){ lsSet(LS_HISTORY, weekHistory); }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* ─── Google Sheets Sync Layer ──────────────────────────────────── */
+  /* ═══════════════════════════════════════════════════════════════════ */
+
+  const LS_SCRIPT_URL = 'ei_dash_scriptUrl_v2';
+  let SCRIPT_URL = '';  // set from localStorage or settings
+
+  function getScriptUrl(){
+    if(!SCRIPT_URL) SCRIPT_URL = localStorage.getItem(LS_SCRIPT_URL) || '';
+    return SCRIPT_URL;
+  }
+  function setScriptUrl(url){
+    SCRIPT_URL = url;
+    localStorage.setItem(LS_SCRIPT_URL, url);
+  }
+  function isSheetsEnabled(){ return getScriptUrl().startsWith('https://'); }
+
+  function setSyncStatus(text, color){
+    const el = document.getElementById('syncStatus');
+    if(!el) return;
+    el.className = `text-xs px-3 py-1.5 rounded-full font-medium`;
+    const colors = {
+      green:  'bg-green-100 text-green-700',
+      red:    'bg-red-100 text-red-700',
+      yellow: 'bg-yellow-100 text-yellow-700',
+      gray:   'bg-gray-100 text-gray-500',
+      blue:   'bg-blue-100 text-blue-700'
+    };
+    el.classList.add(...(colors[color]||colors.gray).split(' '));
+    el.textContent = text;
+  }
+
+  // Build the payload for Sheets from current live state
+  function buildSheetsPayload(){
+    const boqObj = {};
+    TYPES.forEach(t => boqObj[t] = { total: BOQ[t].total, color: BOQ[t].color });
+    return {
+      project,
+      boq: boqObj,
+      srn: SRN,
+      manual,
+      snapshots: weekHistory
+    };
+  }
+
+  // Apply data from Sheets response to live state + localStorage
+  function applySheetsData(data){
+    if(data.project){
+      project = data.project;
+      persistProject();
+    }
+    if(data.boq){
+      TYPES = (project.types || []).map(t => t.name);
+      BOQ = {};
+      (project.types || []).forEach(t => {
+        const b = data.boq[t.name];
+        BOQ[t.name] = { total: (b && (typeof b === 'object' ? b.total : Number(b))) || 0, color: t.color };
+      });
+      persistBoq();
+    }
+    if(data.srn){ SRN = data.srn; persistSrn(); }
+    if(data.manual){ manual = data.manual; persistManual(); }
+    if(data.snapshots){ weekHistory = data.snapshots; persistHistory(); }
+
+    // Ensure manual completeness
+    TYPES.forEach(t => {
+      if(!manual[t]) manual[t] = { delivered:null, pulled:0, lastWeek:0, thisWeek:0 };
+    });
+  }
+
+  // ── Debounced sync (for rapid keystroke scenarios) ──
+  let _syncTimer;
+  function debouncedSync(delayMs = 2000){
+    clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(() => syncToSheets(), delayMs);
+  }
+
+  // ── Push current data TO Sheets ──
+  async function syncToSheets(partial){
+    if(!isSheetsEnabled()) return;
+    setSyncStatus('⬆️ Saving…', 'yellow');
+    try {
+      const body = partial
+        ? { action: 'writePartial', sheetKey: partial.key, data: partial.data }
+        : { action: 'writeAll', data: buildSheetsPayload() };
+      const resp = await fetch(getScriptUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },  // avoid CORS preflight
+        body: JSON.stringify(body)
+      });
+      const result = await resp.json();
+      if(result.error) throw new Error(result.error);
+      setSyncStatus('☁️ Synced', 'green');
+    } catch(e){
+      console.error('Sheets sync push error:', e);
+      setSyncStatus('⚠️ Sync error', 'red');
+    }
+  }
+
+  // ── Pull data FROM Sheets ──
+  async function syncFromSheets(){
+    if(!isSheetsEnabled()){ setSyncStatus('📴 Local only', 'gray'); return false; }
+    setSyncStatus('⬇️ Loading…', 'blue');
+    try {
+      const resp = await fetch(getScriptUrl() + '?action=read');
+      const data = await resp.json();
+      if(data.error) throw new Error(data.error);
+      applySheetsData(data);
+      applyProjectToUI();
+      renderManual();
+      updateAll();
+      setSyncStatus('☁️ Synced', 'green');
+      return true;
+    } catch(e){
+      console.error('Sheets sync pull error:', e);
+      setSyncStatus('⚠️ Sync error', 'red');
+      return false;
+    }
+  }
+
+  // ── Called from Settings ──
+  async function testSheetsConnection(){
+    const url = document.getElementById('sScriptUrl').value.trim();
+    const resultEl = document.getElementById('sheetsTestResult');
+    if(!url){ resultEl.textContent = '❌ Enter a URL first'; resultEl.className='text-xs mt-2 text-red-500'; return; }
+    resultEl.textContent = '⏳ Testing…';
+    resultEl.className = 'text-xs mt-2 text-blue-500';
+    try {
+      const resp = await fetch(url + '?action=read');
+      const data = await resp.json();
+      if(data.error) throw new Error(data.error);
+      resultEl.textContent = '✅ Connected! Found ' + (data.srn||[]).length + ' SRN records, ' + (data.project?.types||[]).length + ' cable types.';
+      resultEl.className = 'text-xs mt-2 text-green-600';
+    } catch(e){
+      resultEl.textContent = '❌ ' + e.message;
+      resultEl.className = 'text-xs mt-2 text-red-500';
+    }
+  }
+
+  async function pushAllToSheets(){
+    const url = document.getElementById('sScriptUrl').value.trim();
+    if(!url){ alert('Enter a Google Apps Script URL first'); return; }
+    setScriptUrl(url);
+    if(!confirm('Push all local data to Google Sheets? This will overwrite the sheet contents.')) return;
+    await syncToSheets();
+    document.getElementById('sheetsTestResult').textContent = '✅ All data pushed to Sheets!';
+    document.getElementById('sheetsTestResult').className = 'text-xs mt-2 text-green-600';
+  }
+
+  async function pullAllFromSheets(){
+    const url = document.getElementById('sScriptUrl').value.trim();
+    if(!url){ alert('Enter a Google Apps Script URL first'); return; }
+    setScriptUrl(url);
+    if(!confirm('Pull data from Google Sheets? This will overwrite your local data.')) return;
+    const ok = await syncFromSheets();
+    const resultEl = document.getElementById('sheetsTestResult');
+    resultEl.textContent = ok ? '✅ All data pulled from Sheets!' : '❌ Pull failed';
+    resultEl.className = 'text-xs mt-2 ' + (ok ? 'text-green-600' : 'text-red-500');
+  }
+
+  /* ─── ISO-week helper ───────────────────────────────────────────────── */
+  function isoWeekLabel(dateISO){
+    const d = new Date(dateISO + 'T00:00:00');
+    const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+    const wk = Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
+    return `W${String(wk).padStart(2,'0')} ${tmp.getUTCFullYear()}`;
+  }
+
+  const clamp0 = (n) => Number.isFinite(n) ? Math.max(0, n) : 0;
+  const km = (m) => m / 1000;
+  const fmt2 = (n) => (Number.isFinite(n) ? n.toFixed(2) : '0.00');
+  const fmtKm = (m) => fmt2(km(m));
+  const fmtPct = (n) => `${(Number.isFinite(n) ? n : 0).toFixed(1)}%`;
+
+  function parseDMY(dmy){
+    const [dd, mm, yy] = dmy.split('/').map(Number);
+    return new Date(yy, mm-1, dd);
+  }
+  function dateFromISO(iso){ return new Date(iso + 'T00:00:00'); }
+
+  function renderManual(){
+    const grid = document.getElementById('manualGrid');
+    grid.innerHTML = '';
+
+    TYPES.forEach(t => {
+      const card = document.createElement('div');
+      card.className = 'border rounded-lg p-4';
+      card.style.borderLeftWidth = '4px';
+      card.style.borderLeftColor = BOQ[t].color;
+
+      card.innerHTML = `
+        <h3 class="font-semibold text-gray-900 mb-3">${t}</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Delivered (km)</label>
+            <input data-type="${t}" data-field="delivered" type="number" step="0.001" placeholder="Auto"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Pulled (km)</label>
+            <input data-type="${t}" data-field="pulled" type="number" step="0.001" placeholder="0"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">Last Week (km)</label>
+            <input data-type="${t}" data-field="lastWeek" type="number" step="0.001" placeholder="0"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-600 mb-1">This Week (km)</label>
+            <input data-type="${t}" data-field="thisWeek" type="number" step="0.001" placeholder="0"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+      `;
+      grid.appendChild(card);
+
+      const inputs = card.querySelectorAll('input');
+      inputs.forEach(inp => {
+        const field = inp.dataset.field;
+        const val = manual[t][field];
+        if (field === 'delivered') inp.value = (val === null) ? '' : fmt2(km(val));
+        else inp.value = fmt2(km(val || 0));
+
+        inp.addEventListener('input', (e) => {
+          const v = e.target.value;
+          if (field === 'delivered') manual[t][field] = (v === '' ? null : Number(v) * 1000);
+          else manual[t][field] = (v === '' ? 0 : Number(v) * 1000);
+          persistManual();
+          updateAll();
+          debouncedSync();
+        });
+      });
+    });
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════ */
+  /* ─── Settings Panel Logic ──────────────────────────────────────── */
+  /* ═══════════════════════════════════════════════════════════════════ */
+
+  let _settingsTypes = []; // temp copy during editing
+
+  function openSettings(){
+    _settingsTypes = JSON.parse(JSON.stringify(project.types));
+    document.getElementById('sProjectName').value = project.name || '';
+    document.getElementById('sProjectStart').value = project.startDate || '';
+    document.getElementById('sTargetDate').value = project.targetDate || '';
+    document.getElementById('sAsOf').value = project.asOf || '';
+    document.getElementById('sScriptUrl').value = getScriptUrl();
+    document.getElementById('sheetsTestResult').textContent = '';
+    renderSettingsTypes();
+    renderSettingsBoq();
+    renderSettingsSrn();
+    populateSrnTypeSelect();
+    document.getElementById('settingsModal').classList.add('open');
+  }
+
+  function closeSettings(){
+    document.getElementById('settingsModal').classList.remove('open');
+  }
+
+  function switchSettingsTab(id, btn){
+    document.querySelectorAll('.stab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.stab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('stab-' + id).classList.add('active');
+    btn.classList.add('active');
+  }
+
+  /* ── Types CRUD ─── */
+  function renderSettingsTypes(){
+    const c = document.getElementById('sTypesContainer');
+    c.innerHTML = '';
+    _settingsTypes.forEach((t, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium text-white';
+      chip.style.background = t.color;
+      chip.innerHTML = `${t.name} <button onclick="removeCableType(${i})" class="ml-1 hover:opacity-70 text-white font-bold">&times;</button>`;
+      c.appendChild(chip);
+    });
+  }
+
+  function addCableType(){
+    const nameEl = document.getElementById('sNewType');
+    const colorEl = document.getElementById('sNewColor');
+    const name = nameEl.value.trim();
+    if(!name){ alert('Enter a type name'); return; }
+    if(_settingsTypes.find(t => t.name.toLowerCase() === name.toLowerCase())){ alert('Type already exists'); return; }
+    _settingsTypes.push({ name, color: colorEl.value });
+    nameEl.value = '';
+    renderSettingsTypes();
+    renderSettingsBoq();
+    populateSrnTypeSelect();
+  }
+
+  function removeCableType(idx){
+    const name = _settingsTypes[idx].name;
+    if(!confirm(`Remove cable type "${name}"? This will also remove its BOQ and manual data.`)) return;
+    _settingsTypes.splice(idx, 1);
+    renderSettingsTypes();
+    renderSettingsBoq();
+    populateSrnTypeSelect();
+  }
+
+  /* ── BOQ editing ─── */
+  function renderSettingsBoq(){
+    const c = document.getElementById('sBoqContainer');
+    c.innerHTML = '';
+    _settingsTypes.forEach(t => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-3';
+      row.innerHTML = `
+        <span class="inline-block w-3 h-3 rounded-full" style="background:${t.color}"></span>
+        <span class="text-sm font-semibold w-16">${t.name}</span>
+        <input type="number" class="s-input flex-1" id="sBoq_${t.name}" placeholder="Total meters" value="${BOQ[t.name] ? BOQ[t.name].total : 0}" />
+        <span class="text-xs text-gray-400">meters</span>
+      `;
+      c.appendChild(row);
+    });
+  }
+
+  /* ── SRN table ─── */
+  function populateSrnTypeSelect(){
+    const sel = document.getElementById('sSrnType');
+    sel.innerHTML = '';
+    _settingsTypes.forEach(t => {
+      sel.innerHTML += `<option value="${t.name}">${t.name}</option>`;
+    });
+  }
+
+  function renderSettingsSrn(){
+    const tbody = document.getElementById('sSrnBody');
+    tbody.innerHTML = '';
+    if(SRN.length === 0){
+      tbody.innerHTML = '<tr><td colspan="5" class="px-3 py-4 text-center text-gray-400 border border-gray-200">No SRN records yet.</td></tr>';
+      return;
+    }
+    SRN.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-gray-50';
+      tr.innerHTML = `
+        <td class="px-3 py-2 border border-gray-200 font-semibold">${r.type}</td>
+        <td class="px-3 py-2 border border-gray-200">${r.date}</td>
+        <td class="px-3 py-2 border border-gray-200 text-right">${r.length.toLocaleString()}</td>
+        <td class="px-3 py-2 border border-gray-200">${r.ref}</td>
+        <td class="px-3 py-2 border border-gray-200 text-center">
+          <button onclick="deleteSrnRow(${i})" class="text-red-400 hover:text-red-600 text-xs font-bold">✕</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function addSrnRow(){
+    const type = document.getElementById('sSrnType').value;
+    const dateEl = document.getElementById('sSrnDate');
+    const lengthEl = document.getElementById('sSrnLength');
+    const refEl = document.getElementById('sSrnRef');
+    if(!type){ alert('Select a cable type'); return; }
+    if(!dateEl.value){ alert('Enter a date'); return; }
+    if(!lengthEl.value || Number(lengthEl.value) <= 0){ alert('Enter a valid length'); return; }
+    // Convert YYYY-MM-DD to DD/MM/YYYY
+    const [y,m,d] = dateEl.value.split('-');
+    const dateDMY = `${d}/${m}/${y}`;
+    SRN.push({ type, date: dateDMY, length: Number(lengthEl.value), ref: refEl.value || 'No SRN' });
+    persistSrn();
+    dateEl.value = '';
+    lengthEl.value = '';
+    refEl.value = '';
+    renderSettingsSrn();
+  }
+
+  function deleteSrnRow(idx){
+    SRN.splice(idx, 1);
+    persistSrn();
+    renderSettingsSrn();
+  }
+
+  /* ── Save all settings ─── */
+  function saveSettings(){
+    // Save Sheets URL if changed
+    const urlInput = document.getElementById('sScriptUrl');
+    if(urlInput) setScriptUrl(urlInput.value.trim());
+
+    // Update project
+    project.name = document.getElementById('sProjectName').value.trim() || 'Cable Pulling Dashboard';
+    project.startDate = document.getElementById('sProjectStart').value;
+    project.targetDate = document.getElementById('sTargetDate').value;
+    project.asOf = document.getElementById('sAsOf').value;
+    project.types = JSON.parse(JSON.stringify(_settingsTypes));
+    persistProject();
+
+    // Update BOQ
+    TYPES = project.types.map(t => t.name);
+    BOQ = {};
+    project.types.forEach(t => {
+      const el = document.getElementById('sBoq_' + t.name);
+      BOQ[t.name] = { total: el ? Number(el.value) || 0 : 0, color: t.color };
+    });
+    persistBoq();
+
+    // Ensure manual has entries for every type, remove orphans
+    const newManual = {};
+    TYPES.forEach(t => {
+      newManual[t] = manual[t] || { delivered:null, pulled:0, lastWeek:0, thisWeek:0 };
+    });
+    manual = newManual;
+    persistManual();
+
+    // Persist SRN (already saved per-row, but ensure consistency)
+    persistSrn();
+
+    closeSettings();
+    applyProjectToUI();
+    renderManual();
+    updateAll();
+
+    // Sync to Google Sheets in background
+    syncToSheets();
+  }
+
+  /* ── Apply project settings to UI elements ─── */
+  function applyProjectToUI(){
+    document.getElementById('dashTitle').textContent = project.name || 'Cable Pulling Dashboard';
+    document.getElementById('asOf').value = project.asOf || '';
+    document.getElementById('targetDate').value = project.targetDate || '';
+    document.getElementById('projectStart').value = project.startDate || '';
+    rebuildTypeSelectors();
+    rebuildSnapshotTableHeader();
+  }
+
+  /* ── Rebuild <select> dropdowns for dynamic TYPES ─── */
+  function rebuildTypeSelectors(){
+    const selectors = ['scurveType', 'weeklyTrendType'];
+    selectors.forEach(id => {
+      const sel = document.getElementById(id);
+      if(!sel) return;
+      const cur = sel.value;
+      sel.innerHTML = '';
+      const allOpt = document.createElement('option');
+      allOpt.value = 'ALL';
+      allOpt.textContent = id === 'weeklyTrendType' ? 'All Types (stacked)' : 'All Types';
+      sel.appendChild(allOpt);
+      TYPES.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t; opt.textContent = t;
+        sel.appendChild(opt);
+      });
+      // Try to restore previous selection
+      if([...sel.options].some(o => o.value === cur)) sel.value = cur;
+    });
+  }
+
+  /* ── Rebuild snapshot table header for dynamic TYPES ─── */
+  function rebuildSnapshotTableHeader(){
+    const thead = document.querySelector('#snapshotTableBody')?.closest('table')?.querySelector('thead tr');
+    if(!thead) return;
+    thead.innerHTML = `
+      <th class="px-3 py-2 text-left border border-gray-200">Week</th>
+      <th class="px-3 py-2 text-left border border-gray-200">Date</th>
+      ${TYPES.map(t => `<th class="px-3 py-2 text-right border border-gray-200">${t} (km)</th>`).join('')}
+      <th class="px-3 py-2 text-right border border-gray-200 font-bold">Total (km)</th>
+      <th class="px-3 py-2 border border-gray-200"></th>`;
+  }
+
+  /* ── Import / Export ─── */
+  function exportAllData(){
+    const data = {
+      _format: 'ei-cable-dashboard-v2',
+      project,
+      boq: {},
+      srn: SRN,
+      manual,
+      weekHistory
+    };
+    TYPES.forEach(t => data.boq[t] = BOQ[t].total);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `cable-dashboard-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    document.getElementById('ioStatus').textContent = '✅ Exported successfully!';
+  }
+
+  function importAllData(evt){
+    const file = evt.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if(!data.project || !data.boq){
+          alert('Invalid file format. Expected ei-cable-dashboard JSON.');
+          return;
+        }
+        // Apply
+        project = data.project;
+        SRN = data.srn || [];
+        manual = data.manual || {};
+        weekHistory = data.weekHistory || [];
+
+        persistProject();
+        lsSet(LS_BOQ, data.boq);
+        persistSrn();
+        persistManual();
+        persistHistory();
+
+        // Reload
+        loadAll();
+        closeSettings();
+        applyProjectToUI();
+        renderManual();
+        updateAll();
+        document.getElementById('ioStatus').textContent = '✅ Imported successfully!';
+        alert('✅ Data imported! Dashboard refreshed.');
+      } catch(e){
+        alert('Error reading file: ' + e.message);
+      }
+    };
+    reader.readAsText(file);
+    evt.target.value = ''; // reset file input
+  }
+
+  function compute(asOfISO, targetISO){
+    const now = dateFromISO(asOfISO);
+    const target = dateFromISO(targetISO);
+    const remainingWeeks = Math.max(0, Math.ceil((target - now) / (7*24*60*60*1000)));
+
+    const deliveredByDate = {};
+    TYPES.forEach(t => deliveredByDate[t] = 0);
+    SRN.forEach(r => {
+      if (parseDMY(r.date) <= now) deliveredByDate[r.type] += r.length;
+    });
+
+    const td = {};
+    let totals = { boq: 0, delivered: 0, pending: 0, pulled: 0, remaining: 0, lastWeek: 0, thisWeek: 0 };
+
+    TYPES.forEach(t => {
+      const total = BOQ[t].total;
+      const delivered = (manual[t].delivered === null ? deliveredByDate[t] : manual[t].delivered);
+      const pulled = clamp0(manual[t].pulled || 0);
+      const lastWeek = clamp0(manual[t].lastWeek || 0);
+      const thisWeek = clamp0(manual[t].thisWeek || 0);
+
+      const pending = clamp0(total - delivered);
+      const remaining = clamp0(total - pulled);
+
+      const deliveryRate = total > 0 ? (delivered/total)*100 : 0;
+      const pullingRate = total > 0 ? (pulled/total)*100 : 0;
+
+      const targetWeekly = remainingWeeks > 0 ? remaining / remainingWeeks : 0;
+      const avgWeekly = (lastWeek + thisWeek)/2;
+      const projectedWeeks = avgWeekly > 0 ? remaining / avgWeekly : null;
+      const projDate = projectedWeeks ? new Date(now.getTime() + projectedWeeks*7*24*60*60*1000) : null;
+
+      td[t] = { total, color: BOQ[t].color, delivered, pulled, pending, remaining, lastWeek, thisWeek, deliveryRate, pullingRate, targetWeekly, avgWeekly, projectedWeeks, projDate };
+
+      totals.boq += total;
+      totals.delivered += delivered;
+      totals.pending += pending;
+      totals.pulled += pulled;
+      totals.remaining += remaining;
+      totals.lastWeek += lastWeek;
+      totals.thisWeek += thisWeek;
+    });
+
+    const totalAvgWeekly = (totals.lastWeek + totals.thisWeek)/2;
+    const totalTargetWeekly = remainingWeeks > 0 ? totals.remaining/remainingWeeks : 0;
+    const totalProjectedWeeks = totalAvgWeekly > 0 ? totals.remaining/totalAvgWeekly : null;
+    const totalProjDate = totalProjectedWeeks ? new Date(now.getTime() + totalProjectedWeeks*7*24*60*60*1000) : null;
+
+    return { now, target, remainingWeeks, td, totals, totalAvgWeekly, totalTargetWeekly, totalProjectedWeeks, totalProjDate };
+  }
+
+  function badge(status){
+    const span = document.createElement('span');
+    span.className = 'px-2 py-1 rounded text-xs font-semibold';
+    if (status === 'Complete') span.classList.add('bg-green-100','text-green-700');
+    else if (status === 'On Track') span.classList.add('bg-blue-100','text-blue-700');
+    else if (status === 'Behind') span.classList.add('bg-red-100','text-red-700');
+    else span.classList.add('bg-gray-100','text-gray-700');
+    span.textContent = status;
+    return span;
+  }
+
+  function buildCards(model){
+    const wrap = document.getElementById('cards');
+    wrap.innerHTML = '';
+
+    const total = model.totals;
+    const deliveryPct = total.boq > 0 ? (total.delivered/total.boq)*100 : 0;
+    const pullingPct = total.boq > 0 ? (total.pulled/total.boq)*100 : 0;
+    const inStockNotPulled = clamp0(total.delivered - total.pulled);
+
+    const totalCard = document.createElement('div');
+    totalCard.className = 'bg-white rounded-lg shadow-lg p-6 border-l-4 border-yellow-500';
+    totalCard.innerHTML = `
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-bold text-gray-900">TOTAL</h3>
+        <div class="text-gray-400 text-xl">📦</div>
+      </div>
+      <div class="space-y-3">
+        <div class="flex justify-between items-center"><span class="text-sm text-gray-600">BOQ Total:</span><span class="font-semibold text-gray-900">${fmtKm(total.boq)} km</span></div>
+        <div class="flex justify-between items-center"><span class="text-sm text-gray-600">Delivered:</span><span class="font-semibold text-green-600">${fmtKm(total.delivered)} km</span></div>
+        <div class="flex justify-between items-center"><span class="text-sm text-gray-600">Pending (to receive):</span><span class="font-semibold text-orange-600">${fmtKm(total.pending)} km</span></div>
+
+        <div class="border-t pt-3 mt-3 space-y-1">
+          <div class="flex justify-between items-center"><span class="text-sm text-gray-600">Pulled:</span><span class="font-semibold text-blue-600">${fmtKm(total.pulled)} km</span></div>
+          <div class="flex justify-between items-center"><span class="text-sm text-gray-600">Delivered - not pulled:</span><span class="font-semibold text-gray-900">${fmtKm(inStockNotPulled)} km</span></div>
+          <div class="flex justify-between items-center"><span class="text-sm text-gray-600">Remaining vs BOQ:</span><span class="font-semibold text-gray-900">${fmtKm(total.remaining)} km</span></div>
+        </div>
+
+        <div class="bg-blue-50 rounded p-2 mt-2">
+          <div class="text-xs text-gray-600 mb-1">Last 2 Weeks Pulling:</div>
+          <div class="flex justify-between text-sm"><span>Last: <strong>${fmtKm(total.lastWeek)} km</strong></span><span>This: <strong>${fmtKm(total.thisWeek)} km</strong></span></div>
+        </div>
+
+        <div class="pt-3 space-y-3">
+          <div>
+            <div class="flex justify-between text-xs text-gray-500 mb-1"><span>Delivery Progress (Delivered / BOQ)</span><span>${fmtPct(deliveryPct)}</span></div>
+            <div class="w-full bg-gray-200 rounded-full h-2"><div class="h-2 rounded-full bg-yellow-500" style="width:${Math.min(100,deliveryPct)}%"></div></div>
+          </div>
+          <div>
+            <div class="flex justify-between text-xs text-gray-500 mb-1"><span>Pulling Progress (Pulled / BOQ)</span><span>${fmtPct(pullingPct)}</span></div>
+            <div class="w-full bg-gray-200 rounded-full h-2"><div class="h-2 rounded-full bg-blue-600" style="width:${Math.min(100,pullingPct)}%"></div></div>
+          </div>
+        </div>
+      </div>
+    `;
+    wrap.appendChild(totalCard);
+
+    TYPES.forEach(t => {
+      const d = model.td[t];
+      const card = document.createElement('div');
+      card.className = 'bg-white rounded-lg shadow-lg p-6 border-l-4';
+      card.style.borderLeftColor = d.color;
+      card.innerHTML = `
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-xl font-bold text-gray-900">${t}</h3>
+          <div class="text-gray-400 text-xl">📦</div>
+        </div>
+        <div class="space-y-3">
+          <div class="flex justify-between items-center"><span class="text-sm text-gray-600">BOQ Total:</span><span class="font-semibold text-gray-900">${fmtKm(d.total)} km</span></div>
+          <div class="flex justify-between items-center"><span class="text-sm text-gray-600">Delivered:</span><span class="font-semibold text-green-600">${fmtKm(d.delivered)} km</span></div>
+          <div class="flex justify-between items-center"><span class="text-sm text-gray-600">Pending:</span><span class="font-semibold text-orange-600">${fmtKm(d.pending)} km</span></div>
+
+          <div class="border-t pt-3 mt-3 space-y-1">
+            <div class="flex justify-between items-center"><span class="text-sm text-gray-600">Pulled:</span><span class="font-semibold text-blue-600">${fmtKm(d.pulled)} km</span></div>
+            <div class="flex justify-between items-center"><span class="text-sm text-gray-600">Remaining vs BOQ:</span><span class="font-semibold text-gray-900">${fmtKm(d.remaining)} km</span></div>
+          </div>
+
+          <div class="bg-blue-50 rounded p-2 mt-2">
+            <div class="text-xs text-gray-600 mb-1">Last 2 Weeks Pulling:</div>
+            <div class="flex justify-between text-sm"><span>Last: <strong>${fmtKm(d.lastWeek)} km</strong></span><span>This: <strong>${fmtKm(d.thisWeek)} km</strong></span></div>
+          </div>
+
+          <div class="pt-3 space-y-3">
+            <div>
+              <div class="flex justify-between text-xs text-gray-500 mb-1"><span>Delivered / BOQ</span><span>${fmtPct(d.deliveryRate)}</span></div>
+              <div class="w-full bg-gray-200 rounded-full h-2"><div class="h-2 rounded-full" style="width:${Math.min(100,d.deliveryRate)}%; background:${d.color}"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs text-gray-500 mb-1"><span>Pulled / BOQ</span><span>${fmtPct(d.pullingRate)}</span></div>
+              <div class="w-full bg-gray-200 rounded-full h-2"><div class="h-2 rounded-full bg-blue-600" style="width:${Math.min(100,d.pullingRate)}%"></div></div>
+            </div>
+          </div>
+        </div>
+      `;
+      wrap.appendChild(card);
+    });
+  }
+
+  function buildWeeklyBoxes(model){
+    document.getElementById('targetLabel').textContent = model.target.toLocaleDateString('en-GB');
+    document.getElementById('weeksRemainingLabel').textContent = model.remainingWeeks;
+
+    const paceBox = document.getElementById('paceBox');
+    const targetBox = document.getElementById('targetBox');
+    paceBox.innerHTML = '';
+    targetBox.innerHTML = '';
+
+    TYPES.forEach(t => {
+      const d = model.td[t];
+
+      const row1 = document.createElement('div');
+      row1.className = 'flex justify-between';
+      row1.innerHTML = `<span>${t}:</span><span class="font-semibold">${fmt2(km(d.avgWeekly))} km/week</span>`;
+      paceBox.appendChild(row1);
+
+      const row2 = document.createElement('div');
+      row2.className = 'flex justify-between';
+      row2.innerHTML = `<span>${t}:</span><span class="font-semibold">${fmt2(km(d.targetWeekly))} km/week</span>`;
+      targetBox.appendChild(row2);
+    });
+
+    const totalP = document.createElement('div');
+    totalP.className = 'flex justify-between border-t border-teal-400/30 pt-2 mt-2 font-bold text-teal-200';
+    totalP.innerHTML = `<span>Total:</span><span>${fmt2(km(model.totalAvgWeekly))} km/week</span>`;
+    paceBox.appendChild(totalP);
+
+    const totalT = document.createElement('div');
+    totalT.className = 'flex justify-between border-t border-cyan-400/30 pt-2 mt-2 font-bold text-cyan-200';
+    totalT.innerHTML = `<span>Total:</span><span>${fmt2(km(model.totalTargetWeekly))} km/week</span>`;
+    targetBox.appendChild(totalT);
+  }
+
+  function buildProjection(model){
+    const grid = document.getElementById('projectionGrid');
+    grid.innerHTML = '';
+
+    TYPES.forEach(t => {
+      const d = model.td[t];
+      const remaining = d.remaining;
+      const proj = d.projectedWeeks;
+
+      const box = document.createElement('div');
+      box.className = 'rounded-lg p-4 text-center border transition-transform hover:scale-105';
+
+      if (remaining <= 0) {
+        box.classList.add('bg-emerald-500/20','border-emerald-400/30');
+        box.innerHTML = `<div class="font-bold text-emerald-300 text-lg">${t}</div><div class="text-sm mt-1">✓ Complete</div>`;
+      } else if (!proj || proj <= 0) {
+        box.classList.add('bg-slate-500/20','border-slate-400/30');
+        box.innerHTML = `<div class="font-bold text-slate-300 text-lg">${t}</div><div class="text-sm text-slate-400 mt-1">No pace data</div>`;
+      } else {
+        const onTrack = proj <= model.remainingWeeks;
+        box.classList.add(onTrack ? 'bg-emerald-500/20' : 'bg-rose-500/20', onTrack ? 'border-emerald-400/30' : 'border-rose-400/30');
+        box.innerHTML = `<div class="font-bold text-lg" style="color:${d.color}">${t}</div><div class="text-xl font-bold mt-1">${proj.toFixed(1)} <span class="text-xs font-normal text-slate-400">weeks</span></div><div class="text-xs text-slate-400 mt-0.5">${d.projDate.toLocaleDateString('en-GB')}</div><div class="text-xs mt-2 font-semibold ${onTrack ? 'text-emerald-400' : 'text-rose-400'}">${onTrack ? '✓ On Track' : '⚠ Behind'}</div>`;
+      }
+      grid.appendChild(box);
+    });
+
+    const overall = document.getElementById('overallProjection');
+    overall.innerHTML = '';
+    if (model.totalProjectedWeeks && model.totals.remaining > 0) {
+      const onTrack = model.totalProjectedWeeks <= model.remainingWeeks;
+      const div = document.createElement('div');
+      div.className = `p-4 rounded-xl text-center font-bold text-lg border ${onTrack ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-200' : 'bg-rose-500/20 border-rose-400/30 text-rose-200'}`;
+      div.textContent = `Overall Projection: ${model.totalProjectedWeeks.toFixed(1)} weeks (${model.totalProjDate.toLocaleDateString('en-GB')})` + (onTrack ? ' ✓ ON TRACK' : ' ⚠ BEHIND');
+      overall.appendChild(div);
+    }
+  }
+
+  function buildSummary(model){
+    const body = document.getElementById('summaryBody');
+    body.innerHTML = '';
+
+    TYPES.forEach(t => {
+      const d = model.td[t];
+      const remaining = d.remaining;
+      const proj = d.projectedWeeks;
+
+      const onTrack = (proj && proj > 0 && proj <= model.remainingWeeks);
+      const status = remaining <= 0 ? 'Complete' : (!proj || proj <= 0) ? 'No pace' : onTrack ? 'On Track' : 'Behind';
+
+      const tr = document.createElement('tr');
+      tr.className = 'border-t';
+      tr.innerHTML = `
+        <td class="px-4 py-3 text-sm font-semibold" style="color:${d.color}">${t}</td>
+        <td class="px-4 py-3 text-sm text-right">${fmtKm(d.total)}</td>
+        <td class="px-4 py-3 text-sm text-right">${fmtKm(d.delivered)}</td>
+        <td class="px-4 py-3 text-sm text-right">${fmtKm(d.pending)}</td>
+        <td class="px-4 py-3 text-sm text-right">${fmtKm(d.pulled)}</td>
+        <td class="px-4 py-3 text-sm text-right">${fmtKm(d.remaining)}</td>
+        <td class="px-4 py-3 text-sm text-right">${fmt2(km(d.targetWeekly))}</td>
+        <td class="px-4 py-3 text-sm text-right">${fmt2(km(d.avgWeekly))}</td>
+        <td class="px-4 py-3 text-sm text-center"></td>
+      `;
+      tr.children[8].appendChild(badge(status));
+      body.appendChild(tr);
+    });
+
+    const total = model.totals;
+    const tr = document.createElement('tr');
+    tr.className = 'border-t bg-gray-50 font-semibold';
+    tr.innerHTML = `
+      <td class="px-4 py-3 text-sm">TOTAL</td>
+      <td class="px-4 py-3 text-sm text-right">${fmtKm(total.boq)}</td>
+      <td class="px-4 py-3 text-sm text-right">${fmtKm(total.delivered)}</td>
+      <td class="px-4 py-3 text-sm text-right">${fmtKm(total.pending)}</td>
+      <td class="px-4 py-3 text-sm text-right">${fmtKm(total.pulled)}</td>
+      <td class="px-4 py-3 text-sm text-right">${fmtKm(total.remaining)}</td>
+      <td class="px-4 py-3 text-sm text-right">${fmt2(km(model.totalTargetWeekly))}</td>
+      <td class="px-4 py-3 text-sm text-right">${fmt2(km(model.totalAvgWeekly))}</td>
+      <td class="px-4 py-3 text-sm text-center">—</td>
+    `;
+    body.appendChild(tr);
+  }
+
+  let deliveryChart, weeklyChart, scurveChart, weeklyTrendChart;
+
+  /* ─── Tab switcher ──────────────────────────────────────────────────── */
+  function switchTab(id, btn){
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      b.classList.remove('active');
+      b.classList.add('text-gray-600');
+    });
+    document.getElementById('pane-' + id).classList.add('active');
+    btn.classList.add('active');
+    btn.classList.remove('text-gray-600');
+    if(id === 'scurve')         renderSCurve();
+    if(id === 'weeklyHistory')  renderWeeklyTrend();
+    if(id === 'delivery' || id === 'weekly') upsertBarCharts(lastModel);
+  }
+
+  /* ─── Reset manual inputs ───────────────────────────────────────────── */
+  function resetManual(){
+    if(!confirm('Reset all manual entry fields to zero / auto?')) return;
+    TYPES.forEach(t => {
+      manual[t] = { delivered: null, pulled: 0, lastWeek: 0, thisWeek: 0 };
+    });
+    persistManual();
+    renderManual();
+    updateAll();
+    syncToSheets();
+  }
+
+  /* ─── Save week snapshot ────────────────────────────────────────────── */
+  function saveWeekSnapshot(){
+    const asOfISO = document.getElementById('asOf').value;
+    if(!asOfISO){ alert('Please set the "As of" date first.'); return; }
+    const label = isoWeekLabel(asOfISO);
+
+    const snap = {
+      id:        Date.now(),
+      weekLabel: label,
+      date:      asOfISO,
+      pulled:    {}
+    };
+    TYPES.forEach(t => snap.pulled[t] = clamp0(manual[t].pulled || 0));
+    snap.total = TYPES.reduce((s,t) => s + snap.pulled[t], 0);
+
+    // Replace existing snapshot for same week
+    const idx = weekHistory.findIndex(w => w.weekLabel === label);
+    if(idx >= 0) weekHistory[idx] = snap;
+    else         weekHistory.push(snap);
+    weekHistory.sort((a,b) => a.date.localeCompare(b.date));
+    persistHistory();
+    syncToSheets();
+
+    // Switch to weekly history tab to show result
+    const btn = document.querySelector('.tab-btn[onclick*="weeklyHistory"]');
+    switchTab('weeklyHistory', btn);
+    alert('✅  Snapshot saved for ' + label);
+  }
+
+  function clearWeekHistory(){
+    if(!confirm('Delete all saved weekly snapshots?')) return;
+    weekHistory = [];
+    persistHistory();
+    renderWeeklyTrend();
+    syncToSheets();
+  }
+
+  function deleteSnap(id){
+    weekHistory = weekHistory.filter(w => w.id !== id);
+    persistHistory();
+    renderWeeklyTrend();
+    syncToSheets();
+  }
+
+  /* ─── S-Curve ───────────────────────────────────────────────────────── */
+  function renderSCurve(){
+    const asOfISO    = document.getElementById('asOf').value;
+    const targetISO  = document.getElementById('targetDate').value;
+    const startISO   = document.getElementById('projectStart').value;
+    const selType    = document.getElementById('scurveType').value;
+    const metric     = document.getElementById('scurveMetric').value;
+
+    if(!startISO || !targetISO){ return; }
+
+    const startDate  = new Date(startISO  + 'T00:00:00');
+    const targetDate = new Date(targetISO + 'T00:00:00');
+    const asOfDate   = new Date((asOfISO || targetISO) + 'T00:00:00');
+    const totalDays  = (targetDate - startDate) / 86400000;
+    if(totalDays <= 0) return;
+
+    const boqTotal = selType === 'ALL'
+      ? TYPES.reduce((s,t) => s + BOQ[t].total, 0)
+      : BOQ[selType].total;
+
+    // Build weekly points from startDate → targetDate
+    const labels     = [];
+    const planned    = [];
+    const actual     = [];
+    const forecast   = [];
+
+    let cur = new Date(startDate);
+    let wi  = 0;
+    while(cur <= targetDate){
+      const iso = cur.toISOString().slice(0,10);
+      labels.push(iso);
+
+      // Planned = linear ramp 0 → boqTotal
+      const elapsed = (cur - startDate) / 86400000;
+      planned.push(+(boqTotal * Math.min(elapsed / totalDays, 1)).toFixed(0));
+
+      // Actual
+      if(metric === 'delivery'){
+        let cum = 0;
+        SRN.forEach(r => {
+          if((selType === 'ALL' || r.type === selType) && parseDMY(r.date) <= cur)
+            cum += r.length;
+        });
+        actual.push(cur <= asOfDate ? cum : null);
+      } else {
+        // Pulling: use saved weekly snapshots (cumulative)
+        let cum = 0;
+        for(const snap of weekHistory){
+          const sd = new Date(snap.date + 'T00:00:00');
+          if(sd <= cur){
+            cum = selType === 'ALL'
+              ? snap.total
+              : snap.pulled[selType] || 0;
+          }
+        }
+        // If no snapshots, fall back to current manual values as a single point at asOf
+        if(weekHistory.length === 0 && cur.toISOString().slice(0,10) === asOfISO){
+          cum = selType === 'ALL'
+            ? TYPES.reduce((s,t) => s + clamp0(manual[t].pulled||0), 0)
+            : clamp0(manual[selType].pulled || 0);
+        }
+        actual.push(cur <= asOfDate ? cum : null);
+      }
+
+      wi++;
+      cur = new Date(startDate.getTime() + wi * 7 * 86400000);
+    }
+
+    // Forecast: from last known actual point, project linearly to boqTotal by targetDate
+    const lastActIdx = actual.reduce((li,v,i) => (v !== null ? i : li), -1);
+    if(lastActIdx >= 0){
+      const lastVal   = actual[lastActIdx];
+      const weeksLeft = labels.length - 1 - lastActIdx;
+      const needed    = boqTotal - lastVal;
+      const rate      = weeksLeft > 0 ? needed / weeksLeft : 0;
+      for(let i = 0; i < labels.length; i++){
+        if(i < lastActIdx)       forecast.push(null);
+        else if(i === lastActIdx) forecast.push(lastVal);
+        else forecast.push(Math.min(lastVal + (i - lastActIdx) * rate, boqTotal));
+      }
+    }
+
+    // BOQ target line (flat)
+    const boqLine = labels.map(() => boqTotal);
+
+    const ctx = document.getElementById('scurveChart');
+    if(scurveChart) scurveChart.destroy();
+    scurveChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Planned (Linear)',
+            data: planned,
+            borderColor: '#9ca3af',
+            borderDash: [6,4],
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: false,
+            tension: 0.1
+          },
+          {
+            label: 'Actual Cumulative',
+            data: actual,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.08)',
+            borderWidth: 2.5,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            fill: true,
+            tension: 0.3,
+            spanGaps: false
+          },
+          {
+            label: 'Forecast',
+            data: forecast,
+            borderColor: '#f97316',
+            borderDash: [5,3],
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: false,
+            tension: 0.3
+          },
+          {
+            label: 'Target (BOQ)',
+            data: boqLine,
+            borderColor: '#22c55e',
+            borderDash: [3,5],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { usePointStyle: true, padding: 18, font:{ size:12 } } },
+          tooltip: {
+            callbacks: {
+              label: c => c.parsed.y !== null
+                ? `${c.dataset.label}: ${(c.parsed.y/1000).toFixed(2)} km`
+                : null
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { maxTicksLimit: 14, font:{ size:11 } },
+            grid:  { color: '#f3f4f6' }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: '#f3f4f6' },
+            title: { display: true, text: 'Cumulative (m)', font:{ size:11 } },
+            ticks: { font:{ size:11 }, callback: v => v >= 1000 ? (v/1000).toFixed(0)+'k' : v }
+          }
+        }
+      }
+    });
+  }
+
+  /* ─── Weekly trend chart + snapshot table ───────────────────────────── */
+  function renderWeeklyTrend(){
+    renderSnapshotTable();
+    const selType = document.getElementById('weeklyTrendType').value;
+    const ctx = document.getElementById('weeklyTrendChart');
+    if(weeklyTrendChart) weeklyTrendChart.destroy();
+
+    if(weekHistory.length === 0){
+      weeklyTrendChart = null;
+      return;
+    }
+
+    const labels   = weekHistory.map(w => w.weekLabel);
+    let datasets   = [];
+
+    if(selType === 'ALL'){
+      // Stacked bar per type
+      TYPES.forEach(t => {
+        datasets.push({
+          label: t,
+          data:  weekHistory.map(w => (w.pulled[t]||0)/1000),
+          backgroundColor: BOQ[t].color + 'bb',
+          borderColor:     BOQ[t].color,
+          borderWidth: 1,
+          stack: 'wk'
+        });
+      });
+      // Total trend line overlay
+      datasets.push({
+        label: 'Total',
+        data:  weekHistory.map(w => w.total/1000),
+        type:  'line',
+        borderColor: '#1e293b',
+        borderWidth: 2.5,
+        pointRadius: 4,
+        pointBackgroundColor: '#1e293b',
+        fill: false,
+        tension: 0.3,
+        yAxisID: 'y'
+      });
+    } else {
+      const color = BOQ[selType].color;
+      const vals  = weekHistory.map(w => (w.pulled[selType]||0)/1000);
+      datasets.push({
+        label: `${selType} Pulled (km)`,
+        data:  vals,
+        backgroundColor: color + 'aa',
+        borderColor:     color,
+        borderWidth: 2,
+        borderRadius: 4
+      });
+      // 2-week rolling average
+      datasets.push({
+        label: '2-Wk Avg',
+        data:  vals.map((v,i) => i === 0 ? v : (v + vals[i-1])/2),
+        type:  'line',
+        borderColor: '#f97316',
+        borderDash: [4,3],
+        borderWidth: 2,
+        pointRadius: 3,
+        fill: false,
+        tension: 0.3
+      });
+    }
+
+    weeklyTrendChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { usePointStyle: true, padding: 16, font:{ size:11 } } },
+          tooltip: { callbacks: { label: c => `${c.dataset.label}: ${Number(c.parsed.y).toFixed(2)} km` } }
+        },
+        scales: {
+          x: { stacked: true, grid: { color: '#f3f4f6' }, ticks: { font:{ size:11 } } },
+          y: {
+            stacked: (selType === 'ALL'),
+            beginAtZero: true,
+            grid: { color: '#f3f4f6' },
+            title: { display: true, text: 'Pulled this week (km)', font:{ size:11 } },
+            ticks: { font:{ size:11 } }
+          }
+        }
+      }
+    });
+  }
+
+  function renderSnapshotTable(){
+    const tbody = document.getElementById('snapshotTableBody');
+    if(!tbody) return;
+    tbody.innerHTML = '';
+    if(weekHistory.length === 0){
+      tbody.innerHTML = `<tr><td colspan="9" class="px-3 py-4 text-center text-gray-400 border border-gray-200">
+        No snapshots yet. Enter weekly pulling data above then click <strong>Save Week Snapshot</strong>.
+      </td></tr>`;
+      return;
+    }
+    [...weekHistory].reverse().forEach(snap => {
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-gray-50';
+      tr.innerHTML = `
+        <td class="px-3 py-2 border border-gray-200 font-semibold text-indigo-600">${snap.weekLabel}</td>
+        <td class="px-3 py-2 border border-gray-200 text-gray-500">${snap.date}</td>
+        ${TYPES.map(t => `<td class="px-3 py-2 border border-gray-200 text-right">${((snap.pulled[t]||0)/1000).toFixed(2)}</td>`).join('')}
+        <td class="px-3 py-2 border border-gray-200 text-right font-bold">${(snap.total/1000).toFixed(2)}</td>
+        <td class="px-3 py-2 border border-gray-200 text-center">
+          <button onclick="deleteSnap(${snap.id})" class="text-red-400 hover:text-red-600 text-xs font-bold">✕</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  /* ─── Delivery + Pace bar charts ────────────────────────────────────── */
+  let lastModel = null;
+  function upsertBarCharts(model){
+    if(!model) return;
+    lastModel = model;
+    const labels = TYPES;
+    const delivered = labels.map(t => km(model.td[t].delivered));
+    const pending = labels.map(t => km(model.td[t].pending));
+    const lastWeek = labels.map(t => km(model.td[t].lastWeek));
+    const thisWeek = labels.map(t => km(model.td[t].thisWeek));
+    const targetWeekly = labels.map(t => km(model.td[t].targetWeekly));
+
+    const ctx1 = document.getElementById('deliveryChart');
+    if (deliveryChart) deliveryChart.destroy();
+    deliveryChart = new Chart(ctx1, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Delivered', data: delivered, backgroundColor: '#10b981', stack: 's' },
+          { label: 'Pending', data: pending, backgroundColor: '#f59e0b', stack: 's' }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y.toFixed(2)} km` } }, legend: { position: 'top' } },
+        scales: { x: { stacked: true }, y: { stacked: true, title: { display: true, text: 'km' } } }
+      }
+    });
+
+    const ctx2 = document.getElementById('weeklyChart');
+    if (weeklyChart) weeklyChart.destroy();
+    weeklyChart = new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Last Week', data: lastWeek },
+          { label: 'This Week', data: thisWeek },
+          { label: 'Target Weekly', data: targetWeekly }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y.toFixed(2)} km` } }, legend: { position: 'top' } },
+        scales: { y: { title: { display: true, text: 'km' } } }
+      }
+    });
+  }
+
+  function updateAll(){
+    const asOfISO = document.getElementById('asOf').value;
+    const targetISO = document.getElementById('targetDate').value;
+    const model = compute(asOfISO, targetISO);
+
+    document.getElementById('remainingWeeks').textContent = model.remainingWeeks;
+    buildCards(model);
+    buildWeeklyBoxes(model);
+    buildProjection(model);
+    buildSummary(model);
+    upsertBarCharts(model);
+
+    // Re-render active advanced tab
+    const scurvePane = document.getElementById('pane-scurve');
+    const trendPane  = document.getElementById('pane-weeklyHistory');
+    if(scurvePane && scurvePane.classList.contains('active'))        renderSCurve();
+    else if(trendPane && trendPane.classList.contains('active'))     renderWeeklyTrend();
+  }
+
+  (function init(){
+    // Load all data from localStorage (or seed defaults on first run)
+    loadAll();
+
+    // Apply project settings to UI controls
+    applyProjectToUI();
+
+    // Event listeners
+    document.getElementById('asOf').addEventListener('change', () => {
+      project.asOf = document.getElementById('asOf').value;
+      persistProject();
+      updateAll();
+      syncToSheets({ key: 'project', data: project });
+    });
+    document.getElementById('targetDate').addEventListener('change', () => {
+      project.targetDate = document.getElementById('targetDate').value;
+      persistProject();
+      updateAll();
+      syncToSheets({ key: 'project', data: project });
+    });
+    document.getElementById('projectStart').addEventListener('change', () => {
+      project.startDate = document.getElementById('projectStart').value;
+      persistProject();
+      renderSCurve();
+      syncToSheets({ key: 'project', data: project });
+    });
+    document.getElementById('scurveType').addEventListener('change', renderSCurve);
+    document.getElementById('scurveMetric').addEventListener('change', renderSCurve);
+    document.getElementById('weeklyTrendType').addEventListener('change', renderWeeklyTrend);
+
+    renderManual();
+    updateAll();
+
+    // Show sync button & attempt initial Sheets pull if configured
+    if(isSheetsEnabled()){
+      document.getElementById('btnSyncPull').classList.remove('hidden');
+      syncFromSheets();
+    } else {
+      setSyncStatus('📴 Local only', 'gray');
+    }
+  })();
+</script>
+</body>
+</html>

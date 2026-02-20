@@ -116,6 +116,73 @@ function formatSrnDate(dateVal) {
   return dd + '/' + mm + '/' + yyyy;
 }
 
+// ─── Read transposed sheet (types as columns) ────────────────
+function readTransposedSheet(sheet) {
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return { types: [], metrics: {} };
+
+  const types = data[0].slice(1).map(String).filter(t => t.trim());
+
+  // Skip help row if present
+  let startRow = 1;
+  if (data.length > 1 && String(data[1][0]).match(/^[📝✏️ℹ💡]/u)) startRow = 2;
+
+  const metrics = {};
+  for (let r = startRow; r < data.length; r++) {
+    const label = String(data[r][0]).trim();
+    if (!label) continue;
+    metrics[label] = {};
+    types.forEach((t, i) => {
+      metrics[label][t] = data[r][i + 1];
+    });
+  }
+  return { types, metrics };
+}
+
+// ─── Write transposed sheet (types as columns, metrics as rows) ─
+function writeTransposedSheet(sheet, types, helpTexts, metricRows) {
+  sheet.clearContents();
+  sheet.clearFormats();
+  const numCols = types.length + 1;
+
+  // Header row: Cable Type | HV | LV | ...
+  const headerRange = sheet.getRange(1, 1, 1, numCols);
+  headerRange.setValues([['Cable Type', ...types]]);
+  headerRange.setBackground(CLR_HEADER).setFontColor(CLR_HDR_TEXT)
+    .setFontWeight('bold').setFontSize(10);
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(1);
+
+  let dataStart = 2;
+
+  // Help row
+  if (helpTexts && helpTexts.length > 0) {
+    const helpRange = sheet.getRange(2, 1, 1, numCols);
+    helpRange.setValues([helpTexts]);
+    helpRange.setBackground(CLR_HELP).setFontColor(CLR_HELP_TXT)
+      .setFontSize(9).setFontStyle('italic').setWrap(true);
+    sheet.setFrozenRows(2);
+    dataStart = 3;
+  }
+
+  // Metric rows
+  if (metricRows.length > 0) {
+    sheet.getRange(dataStart, 1, metricRows.length, numCols).setValues(metricRows);
+    for (let i = 0; i < metricRows.length; i++) {
+      const r = dataStart + i;
+      sheet.getRange(r, 1).setFontWeight('bold');
+      if (i % 2 === 1) sheet.getRange(r, 1, 1, numCols).setBackground(CLR_ALT_ROW);
+    }
+  }
+
+  // Auto-resize with min width
+  for (let c = 1; c <= numCols; c++) {
+    sheet.autoResizeColumn(c);
+    if (sheet.getColumnWidth(c) < 120) sheet.setColumnWidth(c, 120);
+  }
+  sheet.setColumnWidth(1, 180);
+}
+
 // ─── Initialize sheets ───────────────────────────────────────
 function initSheets() {
   getOrCreateSheet(SHEET_CONFIG);
@@ -141,13 +208,15 @@ function readAllData() {
     catch(e) { config[r.key] = r.value; }
   });
 
-  // BOQ
+  // BOQ — transposed: types as columns
   const boqSheet = ss.getSheetByName(SHEET_BOQ);
-  const boqRows = sheetToJSON(boqSheet);
+  const { types: boqTypes, metrics: boqMetrics } = readTransposedSheet(boqSheet);
   const boq = {};
-  boqRows.forEach(r => {
-    if (!r.type) return;
-    boq[r.type] = { total: Number(r.total) || 0, color: r.color || '#6366f1' };
+  boqTypes.forEach(t => {
+    boq[t] = {
+      total: Number((boqMetrics['BOQ Total (m)'] || {})[t]) || 0,
+      color: String((boqMetrics['Color'] || {})[t]) || '#6366f1'
+    };
   });
 
   // SRN — normalize dates
@@ -159,17 +228,19 @@ function readAllData() {
     ref: r.ref || ''
   }));
 
-  // Manual
+  // Manual — transposed: types as columns
   const manualSheet = ss.getSheetByName(SHEET_MANUAL);
-  const manualRows = sheetToJSON(manualSheet);
+  const { types: manTypes, metrics: manMetrics } = readTransposedSheet(manualSheet);
   const manual = {};
-  manualRows.forEach(r => {
-    if (!r.type) return;
-    manual[r.type] = {
-      delivered: (r.delivered === '' || r.delivered === null || r.delivered === 'null') ? null : Number(r.delivered),
-      pulled: Number(r.pulled) || 0,
-      lastWeek: Number(r.lastWeek) || 0,
-      thisWeek: Number(r.thisWeek) || 0
+  manTypes.forEach(t => {
+    const delVal = (manMetrics['Delivered (m)'] || {})[t];
+    const isAuto = (delVal === '' || delVal === null || delVal === undefined ||
+      String(delVal).toLowerCase() === 'auto' || String(delVal) === 'null');
+    manual[t] = {
+      delivered: isAuto ? null : Number(delVal),
+      pulled: Number((manMetrics['Pulled (m)'] || {})[t]) || 0,
+      lastWeek: Number((manMetrics['Last Week (m)'] || {})[t]) || 0,
+      thisWeek: Number((manMetrics['This Week (m)'] || {})[t]) || 0
     };
   });
 
@@ -222,20 +293,28 @@ function writeAllData(payload) {
     );
   }
 
-  // BOQ
+  // BOQ — transposed layout (types as columns)
   if (payload.boq) {
     const boqSheet = ss.getSheetByName(SHEET_BOQ);
-    const boqRows = Object.entries(payload.boq).map(([type, data]) => {
-      if (typeof data === 'object') return [type, data.total || 0, data.color || ''];
-      return [type, Number(data) || 0, ''];
+    const types = Object.keys(payload.boq);
+    const totals = types.map(t => {
+      const d = payload.boq[t];
+      return typeof d === 'object' ? (d.total || 0) : (Number(d) || 0);
     });
-    clearAndWrite(boqSheet,
-      ['type', 'total', 'color'],
-      ['📝 Cable type name', '📏 BOQ total in meters', '🎨 Hex color code'],
-      boqRows
+    const colors = types.map(t => {
+      const d = payload.boq[t];
+      return typeof d === 'object' ? (d.color || '#6366f1') : '#6366f1';
+    });
+    writeTransposedSheet(boqSheet, types,
+      ['📝 Metric', ...types.map(() => '✏️ Edit value')],
+      [
+        ['BOQ Total (m)', ...totals],
+        ['Color',         ...colors]
+      ]
     );
-    if (boqRows.length > 0) {
-      boqSheet.getRange(3, 2, boqRows.length, 1).setNumberFormat('#,##0');
+    // Number format for totals row
+    if (types.length > 0) {
+      boqSheet.getRange(3, 2, 1, types.length).setNumberFormat('#,##0');
     }
   }
 
@@ -257,23 +336,26 @@ function writeAllData(payload) {
     }
   }
 
-  // Manual
+  // Manual — transposed layout (types as columns)
   if (payload.manual) {
     const manualSheet = ss.getSheetByName(SHEET_MANUAL);
-    const manualRows = Object.entries(payload.manual).map(([type, data]) => [
-      type,
-      data.delivered === null ? 'null' : (data.delivered || 0),
-      data.pulled || 0,
-      data.lastWeek || 0,
-      data.thisWeek || 0
-    ]);
-    clearAndWrite(manualSheet,
-      ['type', 'delivered', 'pulled', 'lastWeek', 'thisWeek'],
-      ['📝 Cable type', '📏 Delivered (m) or "null" for auto', '📏 Total pulled (m)', '📏 Last week (m)', '📏 This week (m)'],
-      manualRows
+    const types = Object.keys(payload.manual);
+    const delivered = types.map(t => payload.manual[t].delivered === null ? 'auto' : (payload.manual[t].delivered || 0));
+    const pulled    = types.map(t => payload.manual[t].pulled || 0);
+    const lastWk    = types.map(t => payload.manual[t].lastWeek || 0);
+    const thisWk    = types.map(t => payload.manual[t].thisWeek || 0);
+    writeTransposedSheet(manualSheet, types,
+      ['📝 Metric', ...types.map(() => '✏️ Edit values in meters. Type "auto" for auto-calc delivered')],
+      [
+        ['Delivered (m)',  ...delivered],
+        ['Pulled (m)',     ...pulled],
+        ['Last Week (m)',  ...lastWk],
+        ['This Week (m)',  ...thisWk]
+      ]
     );
-    if (manualRows.length > 0) {
-      manualSheet.getRange(3, 3, manualRows.length, 3).setNumberFormat('#,##0');
+    // Number format for pulled/lastWeek/thisWeek rows (rows 4-6), skip delivered which may be "auto"
+    if (types.length > 0) {
+      manualSheet.getRange(4, 2, 3, types.length).setNumberFormat('#,##0');
     }
   }
 

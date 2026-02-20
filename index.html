@@ -518,9 +518,17 @@
     _syncTimer = setTimeout(() => syncToSheets(), delayMs);
   }
 
+  // ── Guard: don't push empty data to Sheets ──
+  let _initialPullDone = false;
+
   // ── Push current data TO Sheets ──
   async function syncToSheets(partial){
     if(!isSheetsEnabled()) return;
+    // Block pushing if we have no cable types (would overwrite good Sheets data)
+    if(TYPES.length === 0 && !partial){
+      console.warn('syncToSheets blocked: no cable types loaded, refusing to overwrite Sheets');
+      return;
+    }
     setSyncStatus('⬆️ Saving…', 'yellow');
     try {
       const body = partial
@@ -1690,19 +1698,19 @@
       project.asOf = document.getElementById('asOf').value;
       persistProject();
       updateAll();
-      syncToSheets({ key: 'project', data: project });
+      if(_initialPullDone) syncToSheets({ key: 'project', data: project });
     });
     document.getElementById('targetDate').addEventListener('change', () => {
       project.targetDate = document.getElementById('targetDate').value;
       persistProject();
       updateAll();
-      syncToSheets({ key: 'project', data: project });
+      if(_initialPullDone) syncToSheets({ key: 'project', data: project });
     });
     document.getElementById('projectStart').addEventListener('change', () => {
       project.startDate = document.getElementById('projectStart').value;
       persistProject();
       renderSCurve();
-      syncToSheets({ key: 'project', data: project });
+      if(_initialPullDone) syncToSheets({ key: 'project', data: project });
     });
     document.getElementById('scurveType').addEventListener('change', renderSCurve);
     document.getElementById('scurveMetric').addEventListener('change', renderSCurve);
@@ -1716,6 +1724,7 @@
       document.getElementById('btnSyncPull').classList.remove('hidden');
       setSyncStatus('⬇️ Loading from Sheets…', 'blue');
       syncFromSheets().then(ok => {
+        _initialPullDone = true;
         if(!ok) console.warn('Sheets pull failed on init, using local data');
       });
     } else {

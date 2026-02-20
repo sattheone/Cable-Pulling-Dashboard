@@ -627,6 +627,16 @@
     const grid = document.getElementById('manualGrid');
     grid.innerHTML = '';
 
+    if(TYPES.length === 0){
+      grid.innerHTML = `
+        <div class="col-span-full text-center py-12 text-gray-400">
+          <div class="text-4xl mb-3">📋</div>
+          <p class="font-medium text-gray-500">No cable types configured</p>
+          <p class="text-sm mt-1">Open <button onclick="openSettings()" class="text-blue-500 underline">Settings ⚙️</button> to add cable types,<br>or configure a Google Sheets URL to sync data.</p>
+        </div>`;
+      return;
+    }
+
     TYPES.forEach(t => {
       const card = document.createElement('div');
       card.className = 'border rounded-lg p-4';
@@ -1691,7 +1701,10 @@
     // Show sync button & attempt initial Sheets pull if configured
     if(isSheetsEnabled()){
       document.getElementById('btnSyncPull').classList.remove('hidden');
-      syncFromSheets();
+      setSyncStatus('⬇️ Loading from Sheets…', 'blue');
+      syncFromSheets().then(ok => {
+        if(!ok) console.warn('Sheets pull failed on init, using local data');
+      });
     } else {
       setSyncStatus('📴 Local only', 'gray');
     }
